@@ -1,0 +1,73 @@
+// 모델 라우터: "부문(role)" 이름만 받으면 설정에 배정된 공급자·모델로 연결하고,
+// 호출마다 토큰 사용량과 비용(달러)을 계산해 돌려준다.
+const { ADAPTERS, ProviderError } = require('./providers');
+const { costUsd } = require('./pricing');
+
+class ModelRouter {
+  constructor(getConfig, fetchImpl) {
+    this.getConfig = getConfig;
+    this.fetch = fetchImpl || globalThis.fetch;
+    this.usage = {}; // 부문별 누적: { calls, input, output, cacheRead, cacheWrite, usd, unknownCost }
+  }
+
+  resolve(role) {
+    const cfg = this.getConfig();
+    const r = cfg.roles[role];
+    if (!r) throw new ProviderError(`'${role}' 부문 설정이 없습니다.`);
+    const p = cfg.providers[r.provider];
+    if (!p) throw new ProviderError(`'${r.label}' 부문에 배정된 공급자(${r.provider})를 찾을 수 없습니다.`);
+    if (p.disabled) throw new ProviderError(`'${p.label}' 공급자는 아직 사용할 수 없습니다.`);
+    const local = /127\.0\.0\.1|localhost/.test(p.baseUrl);
+    if (!p.apiKey && !local) throw new ProviderError(`${p.label} API 키가 없습니다. 설정(⚙)에서 입력해 주세요.`);
+    const adapter = ADAPTERS[p.type];
+    if (!adapter) throw new ProviderError(`지원하지 않는 공급자 방식: ${p.type}`);
+    return { roleCfg: r, provider: p, adapter };
+  }
+
+  // 이 부문을 지금 쓸 수 있는지(키가 있는지) 미리 확인
+  available(role) {
+    try { this.resolve(role); return true; } catch (_) { return false; }
+  }
+
+  record(role, model, usage) {
+    const usd = costUsd(model, usage);
+    const u = (this.usage[role] = this.usage[role] || { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 0, unknownCost: false });
+    u.calls += 1; u.input += usage.input || 0; u.output += usage.output || 0;
+    u.cacheRead += usage.cacheRead || 0; u.cacheWrite += usage.cacheWrite || 0;
+    if (usd === null) u.unknownCost = true; else u.usd += usd;
+    return usd;
+  }
+
+  async call(role, req) {
+    const { roleCfg, provider, adapter } = this.resolve(role);
+    const full = { effort: roleCfg.effort || undefined, ...req };
+    let lastErr;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await adapter(provider, roleCfg.model, full, this.fetch);
+        res.costUsd = this.record(role, roleCfg.model, res.usage);
+        res.model = `${provider.label} · ${roleCfg.model}`;
+        res.modelId = roleCfg.model;
+        return res;
+      } catch (e) {
+        lastErr = e;
+        if (e.name === 'AbortError' || !e.retryable) throw e;
+        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+      }
+    }
+    throw lastErr;
+  }
+
+  async testRole(role) {
+    const { provider } = this.resolve(role);
+    if (provider.type === 'jev') {
+      const res = await this.call(role, { state: '사용자가 "연결 테스트"라고 입력함', questions: { ok: { type: 'choice', instructions: '연결 테스트입니다. ok 를 고르세요.', criteria: { ok: '정상', no: '비정상' } } } });
+      const a = res.answers.ok || {};
+      return { ok: true, model: res.model, text: `${a.choice} (신뢰도 ${Math.round((a.confidence || 0) * 100)}%)` };
+    }
+    const res = await this.call(role, { system: '짧게 답하세요.', messages: [{ role: 'user', content: [{ type: 'text', text: '연결 테스트입니다. "OK"라고만 답하세요.' }] }], maxTokens: 512 });
+    return { ok: true, model: res.model, text: res.content.filter(b => b.type === 'text').map(b => b.text).join('').slice(0, 100) };
+  }
+}
+
+module.exports = { ModelRouter };

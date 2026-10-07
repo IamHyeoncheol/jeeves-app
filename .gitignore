@@ -1,0 +1,16 @@
+# 의존 패키지·빌드 산출물
+node_modules/
+jeeves-app/dist/
+jeeves-app/release/
+# 비밀: 계정·비밀번호·키 파일은 절대 올리지 않는다
+*account*.txt
+*_account.*
+*.key
+*.pem
+.env
+.env.*
+credentials*
+secrets*
+# 임시
+*.lock
+Thumbs.db

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: http: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Jeeves</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header id="chrome">
+    <div id="tabstrip">
+      <div id="tabs"></div>
+      <button id="newtab" class="icon" title="새 탭 (Ctrl+T)">＋</button>
+    </div>
+    <div id="toolbar">
+      <button class="icon" id="back" title="뒤로">←</button>
+      <button class="icon" id="forward" title="앞으로">→</button>
+      <button class="icon" id="reload" title="새로고침">↻</button>
+      <form id="addr-form"><input id="address" spellcheck="false" placeholder="주소를 입력하거나 검색하세요 (Ctrl+L)"></form>
+      <button class="pill" id="toggle-layout" title="작업 화면 ↔ 웹 크게 보기 (Ctrl+J)">⤢ 웹 크게 보기</button>
+      <button class="icon" id="open-settings" title="설정">⚙</button>
+    </div>
+  </header>
+
+  <main id="body">
+    <section id="web-area"><div id="web-placeholder">페이지를 불러오는 중…</div></section>
+    <div id="splitter" role="separator" aria-orientation="vertical" tabindex="0" title="끌어서 크기 조절 · 두 번 클릭하면 기본 크기 · ←/→ 키로도 조절"></div>
+    <aside id="preview" aria-label="웹 화면 미리보기">
+      <div class="pv-head">
+        <span class="pv-title">웹 화면</span>
+        <button class="ghost small" id="pv-open" title="웹 화면 크게 보기">⤢ 크게</button>
+      </div>
+      <button class="pv-main" id="pv-main" title="클릭하면 크게 봅니다">
+        <img id="pv-img" alt="">
+        <span class="pv-empty" id="pv-empty">화면 준비 중…</span>
+      </button>
+      <div class="pv-meta"><span id="pv-tabtitle"></span><span id="pv-url" class="muted"></span></div>
+      <div class="pv-sub-head" id="pv-agents-head">에이전트 탭</div>
+      <div id="pv-agents"></div>
+      <p class="pv-tip muted">미리보기는 실제 화면을 줄여 보여 줍니다. 클릭하면 크게 보고 직접 조작할 수 있습니다.</p>
+    </aside>
+    <aside id="panel">
+      <div id="panel-head">
+        <div class="brand"><span class="logo">✦</span> Jeeves <small>테스트 버전 0.4.0</small></div>
+        <div class="seg" id="panel-tabs">
+          <button data-view="chat" class="on">대화</button>
+          <button data-view="history">작업 기록</button>
+        </div>
+      </div>
+
+      <div id="view-chat" class="view on">
+        <div id="messages">
+          <div class="welcome">
+            <h2>무엇을 도와드릴까요?</h2>
+            <p><b>💬 질문</b> — 지금 보는 페이지에 대해 묻거나 일반 질문을 합니다.</p>
+            <p><b>🤖 작업</b> — 브라우저를 대신 조작합니다. 예) “기업마당에서 전기안전 관련 지원사업 공고 찾아서 마감일 순으로 정리해 줘”</p>
+            <p class="muted">결제·전송·제출·삭제처럼 되돌릴 수 없는 동작은 항상 먼저 물어봅니다. 비밀번호는 직접 입력하세요.</p>
+            <div class="quick">
+              <button data-quick="summarize">📄 이 페이지 요약</button>
+              <button data-quick="example">🤖 작업 예시 넣기</button>
+            </div>
+          </div>
+        </div>
+        <div id="composer">
+          <div class="seg small" id="mode">
+            <button data-mode="ask" class="on">💬 질문</button>
+            <button data-mode="act">🤖 작업</button>
+          </div>
+          <textarea id="input" rows="3" placeholder="질문을 입력하세요 (Enter 보내기, Shift+Enter 줄바꿈)"></textarea>
+          <div id="composer-opts">
+            <label class="opt ask-only"><input type="checkbox" id="include-page" checked> 현재 페이지 내용 포함</label>
+            <label class="opt act-only"><select id="where"><option value="background">새 백그라운드 탭에서</option><option value="current">지금 보는 탭에서</option></select></label>
+            <span class="opt act-only engine-badge" id="engine-badge" title="설정 → 구독 연결에서 변경">API</span>
+            <span class="spacer"></span>
+            <button id="reset-chat" class="link" title="대화 기록 지우기">새 대화</button>
+            <button id="send" class="primary">보내기</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-history" class="view">
+        <div id="history-list"></div>
+      </div>
+    </aside>
+  </main>
+
+  <div id="settings" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="sheet">
+      <div class="sheet-head"><h2>설정</h2><button class="icon" id="close-settings">✕</button></div>
+      <div class="sheet-body">
+        <section>
+          <h3>1. AI 공급자 (API 키)</h3>
+          <p class="muted">키는 이 PC에서 Windows 보호 기능으로 암호화해 저장합니다. 화면에는 끝 4자리만 보입니다.</p>
+          <div class="row"><span>키 파일(txt)에서 한 번에 불러오기<br><small class="muted">Anthropic·Gemini·TypeSafe 등 키 모양을 알아서 구분합니다. 불러온 뒤 txt 파일은 지우는 것을 권합니다.</small></span><button class="ghost" id="import-keys">키 파일 선택</button></div>
+          <div id="import-msg" class="muted"></div>
+          <div id="providers"></div>
+        </section>
+        <section>
+          <h3>2. 부문별 모델 배정</h3>
+          <p class="muted">부문마다 다른 AI와 생각 깊이(effort)를 정할 수 있습니다. 생각 깊이가 낮을수록 빠르고 저렴합니다(Claude 5 계열만 적용).</p>
+          <div id="roles"></div>
+          <datalist id="model-suggestions">
+            <option value="claude-sonnet-5-5"><option value="claude-opus-5-5"><option value="claude-haiku-4-5-20251001"><option value="claude-fable-5-1">
+            <option value="gemini-3.8-flash"><option value="gemini-3.5-flash-lite"><option value="gemini-3.1-pro-preview">
+            <option value="gpt-5.6-luna"><option value="gpt-5.6-terra"><option value="jev-latest"><option value="llama3.1">
+          </datalist>
+        </section>
+        <section>
+          <h3>3. 비용 절약 장치</h3>
+          <label class="row"><span>작업 방식<br><small class="muted">혼합: 쉬운 클릭은 Jev(거의 0원), 글 입력·막힘·완료 확인은 Claude</small></span>
+            <select id="agent-mode"><option value="auto">자동 (Jev 키가 있으면 혼합)</option><option value="hybrid">혼합 (Jev + Claude)</option><option value="llm">Claude만</option></select>
+          </label>
+          <label class="row"><span>Jev 신뢰도 기준<br><small class="muted">이보다 확신이 낮으면 Claude에게 넘김 (높을수록 안전, 절약 효과↓)</small></span><input type="number" id="jev-conf" min="0.3" max="0.99" step="0.05"></label>
+          <label class="row"><span>화면 캡처 전송<br><small class="muted">자동: 첫 화면·실패했을 때·AI가 요청할 때만</small></span>
+            <select id="shot-mode"><option value="auto">자동 (추천)</option><option value="always">매 단계 (정확도↑ 비용↑)</option><option value="never">안 보냄 (가장 저렴)</option></select>
+          </label>
+          <label class="row"><span>막히면 상위 모델로 넘기기<br><small class="muted">기본 모델이 2번 연속 실패하면 "작업 승격" 부문 모델로 교체</small></span><input type="checkbox" id="escalate"></label>
+          <label class="row"><span>작업 1건 예산 (원)<br><small class="muted">넘으면 계속할지 물어봄. 0 = 제한 없음</small></span><input type="number" id="budget" min="0" step="100"></label>
+          <label class="row">환율 (원/달러, 비용 표시용) <input type="number" id="krw-rate" min="500" step="10"></label>
+        </section>
+        <section>
+          <h3>4. 안전·기타</h3>
+          <label class="row">확인 받을 동작
+            <select id="confirm-mode"><option value="risky">위험한 동작만 (결제·전송·제출·삭제 등)</option><option value="always">모든 동작 (가장 안전, 느림)</option></select>
+          </label>
+          <label class="row">한 작업 최대 행동 수 <input type="number" id="max-steps" min="5" max="100"></label>
+          <label class="row">새 탭 시작 페이지 <input id="homepage"></label>
+        </section>
+        <section>
+          <h3>5. 구독 연결 (Claude Code · Codex)</h3>
+          <p class="muted">내 구독(Claude Pro·Max, ChatGPT Plus·Pro)으로 쓰는 방법입니다. Jeeves은 로그인 정보를 전혀 다루지 않고, 정품 Claude Code·Codex가 내 로그인으로 Jeeves 브라우저 도구를 부릅니다. <b>개인 사용 전용</b>입니다.</p>
+          <label class="row"><span>🤖 작업 엔진<br><small class="muted">구독: 내 PC의 정품 Claude Code 실행 (한도에 걸리면 풀릴 때 자동 재개)</small></span>
+            <select id="engine-type"><option value="api">API 키 방식 (Sonnet + Jev, 사용량만큼 과금)</option><option value="claude-code">구독: Claude Code (Pro·Max)</option></select>
+          </label>
+          <div class="row"><span>Claude Code 설치 확인<br><small class="muted" id="cc-status">확인 전</small></span><span><input id="cc-path" placeholder="자동으로 찾음 (직접 지정 시 claude.exe 경로)"> <button class="ghost" id="cc-check">확인</button></span></div>
+          <label class="row"><span>Claude Code 모델<br><small class="muted">sonnet 추천(한도 절약), opus 는 한도를 빨리 씀</small></span>
+            <select id="cc-model"><option value="sonnet">sonnet</option><option value="opus">opus</option><option value="haiku">haiku</option><option value="">Claude Code 기본값</option></select>
+          </label>
+          <details class="howto"><summary>Claude Code 설치·로그인 방법 (처음 한 번)</summary>
+            <ol>
+              <li>시작 메뉴에서 <b>PowerShell</b>을 엽니다.</li>
+              <li>Anthropic 공식 설치 명령을 붙여 넣고 Enter: <code class="copy" data-copy="irm https://claude.ai/install.ps1 | iex">irm https://claude.ai/install.ps1 | iex</code></li>
+              <li>설치가 끝나면 <code>claude</code> 를 입력해 실행 → 화면 안내에 따라 <b>본인 Claude 계정으로 로그인</b>(Jeeves이 아닌 Anthropic 공식 화면).</li>
+              <li>Jeeves으로 돌아와 위의 [확인]을 누릅니다.</li>
+            </ol>
+            <p class="muted">설치 명령은 Anthropic 공식 문서 기준입니다. 바뀌었을 수 있으니 code.claude.com 의 설치 안내를 함께 확인하세요.</p>
+          </details>
+          <div class="row"><span>Jeeves 도구 창구(MCP)<br><small class="muted" id="mcp-status">확인 중…</small></span><span><button class="ghost" id="mcp-regen" title="토큰을 바꾸면 기존 연결은 다시 등록해야 합니다">토큰 새로 만들기</button></span></div>
+          <div class="copybox"><div class="cb-head"><span>내 Claude Code(터미널)에서 Jeeves 쓰기 — PowerShell에 한 번 붙여 넣기</span> <button class="ghost small" data-copy-target="cmd-claude">복사</button></div><pre id="cmd-claude"></pre></div>
+          <div class="copybox"><div class="cb-head"><span>내 Codex(ChatGPT 구독)에서 Jeeves 쓰기 — <code>%USERPROFILE%\.codex\config.toml</code> 끝에 추가</span> <button class="ghost small" data-copy-target="cmd-codex">복사</button></div><pre id="cmd-codex"></pre></div>
+          <p class="muted">연결 뒤에는 Claude Code·Codex에게 "Jeeves 브라우저로 ○○ 해 줘"라고 하면 됩니다. 위험한 동작은 Jeeves 화면에서 승인을 받습니다. 토큰은 비밀번호처럼 다루세요.</p>
+        </section>
+        <section>
+          <h3>6. 이번 실행 사용량</h3>
+          <div id="usage" class="muted">-</div>
+        </section>
+      </div>
+      <div class="sheet-foot"><span id="save-msg" class="muted"></span><button class="primary" id="save-settings">저장</button></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

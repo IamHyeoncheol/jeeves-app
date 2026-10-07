@@ -1,0 +1,24 @@
+{
+  "name": "jeeves-browser",
+  "productName": "Jeeves",
+  "version": "0.4.0",
+  "description": "Jeeves(지브스, 가칭) - AI 에이전트 내장 브라우저 테스트 버전",
+  "main": "src/main/main.js",
+  "author": "최현철",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node tests/run-tests.js && node tests/mail-tests.js && node tests/imap-tests.js && node tests/credential-tests.js",
+    "pack:win": "electron-packager . Jeeves --platform=win32 --arch=x64 --out=dist --overwrite --icon=build/icon.ico --app-version=0.4.0 --win32metadata.ProductName=Jeeves --win32metadata.FileDescription=Jeeves --ignore=^/dist --ignore=^/tests --ignore=^/shots --ignore=^/scripts --ignore=^/release --ignore=^/docs --ignore=^/installer"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.5.1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "imapflow": "^2.2.7",
+    "zod": "^4.6.5"
+  }
+}
