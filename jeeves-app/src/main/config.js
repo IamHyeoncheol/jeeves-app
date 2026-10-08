@@ -102,7 +102,7 @@ class ConfigStore {
     const c = JSON.parse(JSON.stringify(this.data));
     for (const p of Object.values(c.providers)) {
       p.hasKey = !!p.apiKey;
-      p.apiKey = p.apiKey ? '••••' + p.apiKey.slice(-4) : '';
+      p.apiKey = p.apiKey ? '••••••••' : '';   // 끝자리도 화면으로 보내지 않는다 (키 길이·일부 노출 방지)
     }
     c.encryptionAvailable = !!this.safe;
     return c;

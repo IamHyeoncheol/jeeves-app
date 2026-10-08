@@ -394,9 +394,9 @@ async function openSettings(msg) {
   $('#settings').classList.remove('hidden');
   const pv = $('#providers');
   pv.innerHTML = Object.entries(cfg.providers).map(([id, p]) => {
-    // 저장된 키는 ●●●● + 끝 4자리로 눈에 띄게 보여 주고, 비어 있으면 '미입력'으로 구분한다 (원문은 화면에 오지 않음)
+    // 저장된 키는 ●●●●(일정한 길이, 끝자리 없음)로 눈에 띄게 보여 주고, 비어 있으면 '미입력'으로 구분한다 (키는 화면에 오지 않음)
     const saved = !!p.hasKey && id !== 'ollama' && !p.disabled;
-    const shown = saved ? '●●●●●●●●●●' + String(p.apiKey).slice(-4) : '';
+    const shown = saved ? '●●●●●●●●●●●●●●' : '';
     const badge = id === 'ollama' ? '' : saved ? ' <span class="badge ok">✔ 저장됨</span>' : (p.disabled ? '' : ' <span class="badge">미입력</span>');
     const keyInput = saved
       ? `<input data-k="apiKey" class="saved" type="text" autocomplete="off" spellcheck="false" value="${esc(shown)}" data-shown="${esc(shown)}" data-orig="${esc(p.apiKey)}" title="저장된 키입니다. 바꾸려면 이 칸을 클릭하고 새 키를 붙여넣으세요.">`
@@ -454,7 +454,7 @@ async function saveSettings(quiet) {
   $$('#providers .prov').forEach(row => {
     const id = row.dataset.id;
     const keyEl = row.querySelector('[data-k=apiKey]');
-    // 저장된 키를 건드리지 않았으면 가려진 표시값 대신 '기존 키 유지' 신호(••••끝4자리)를 보낸다
+    // 저장된 키를 건드리지 않았으면 가려진 표시값 대신 '기존 키 유지' 신호(••••••••)를 보낸다
     const keyVal = keyEl.dataset.shown && keyEl.value.trim() === keyEl.dataset.shown ? keyEl.dataset.orig : keyEl.value.trim();
     patch.providers[id] = { apiKey: keyVal, baseUrl: row.querySelector('[data-k=baseUrl]').value.trim() };
   });

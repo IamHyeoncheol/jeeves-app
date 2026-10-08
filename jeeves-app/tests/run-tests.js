@@ -168,13 +168,14 @@ function fakeFetch(handler) {
     const store = new ConfigStore(dir, null);
     store.update({ providers: { anthropic: { apiKey: 'sk-ant-secret-1234' } } });
     assert.strictEqual(store.get().providers.anthropic.apiKey, 'sk-ant-secret-1234');
-    store.update({ providers: { anthropic: { apiKey: '●●●●●●●●●●1234' } } });   // 새 표시 형식
+    store.update({ providers: { anthropic: { apiKey: '●●●●●●●●●●●●●●' } } });   // 새 표시 형식
     assert.strictEqual(store.get().providers.anthropic.apiKey, 'sk-ant-secret-1234');
     store.update({ providers: { anthropic: { apiKey: '••••1234' } } });         // 기존 형식
     assert.strictEqual(store.get().providers.anthropic.apiKey, 'sk-ant-secret-1234');
     const pub = store.getPublic().providers.anthropic;
     assert.strictEqual(pub.hasKey, true);
     assert.ok(!pub.apiKey.includes('secret'));
+    assert.ok(!pub.apiKey.includes('1234'), '끝자리도 화면으로 보내면 안 됨');
   });
 
   await t('Ollama(로컬)는 키 없이 허용', async () => {
