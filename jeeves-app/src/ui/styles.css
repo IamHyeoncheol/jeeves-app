@@ -148,6 +148,7 @@ button.link { background: none; border: 0; color: var(--muted); cursor: pointer;
 .prov input, .role input, .role select, .row input, .row select { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: var(--bg); min-width: 0; }
 .prov .nm, .role .nm { font-weight: 600; font-size: 13px; }
 .prov.disabled { opacity: .55; }
+.prov input.saved { border-color: var(--good); background: #f1f9f4; letter-spacing: 1px; font-weight: 600; cursor: text; }
 .role .res { grid-column: 1 / -1; font-size: 12px; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; }
 .row input[type=number] { width: 90px; }

@@ -163,6 +163,20 @@ function fakeFetch(handler) {
     assert.strictEqual(c.version, 2);
   });
 
+  await t('설정 화면의 가린 키(●●●●…끝4자리)를 그대로 저장해도 기존 키 유지', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-'));
+    const store = new ConfigStore(dir, null);
+    store.update({ providers: { anthropic: { apiKey: 'sk-ant-secret-1234' } } });
+    assert.strictEqual(store.get().providers.anthropic.apiKey, 'sk-ant-secret-1234');
+    store.update({ providers: { anthropic: { apiKey: '●●●●●●●●●●1234' } } });   // 새 표시 형식
+    assert.strictEqual(store.get().providers.anthropic.apiKey, 'sk-ant-secret-1234');
+    store.update({ providers: { anthropic: { apiKey: '••••1234' } } });         // 기존 형식
+    assert.strictEqual(store.get().providers.anthropic.apiKey, 'sk-ant-secret-1234');
+    const pub = store.getPublic().providers.anthropic;
+    assert.strictEqual(pub.hasKey, true);
+    assert.ok(!pub.apiKey.includes('secret'));
+  });
+
   await t('Ollama(로컬)는 키 없이 허용', async () => {
     const cfg = clone(DEFAULTS); cfg.providers.ollama.apiKey = '';
     cfg.roles.chat = { label: '대화', provider: 'ollama', model: 'llama3.1' };

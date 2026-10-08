@@ -393,12 +393,26 @@ async function openSettings(msg) {
   api.layout.hideWeb(true);
   $('#settings').classList.remove('hidden');
   const pv = $('#providers');
-  pv.innerHTML = Object.entries(cfg.providers).map(([id, p]) => `
+  pv.innerHTML = Object.entries(cfg.providers).map(([id, p]) => {
+    // 저장된 키는 ●●●● + 끝 4자리로 눈에 띄게 보여 주고, 비어 있으면 '미입력'으로 구분한다 (원문은 화면에 오지 않음)
+    const saved = !!p.hasKey && id !== 'ollama' && !p.disabled;
+    const shown = saved ? '●●●●●●●●●●' + String(p.apiKey).slice(-4) : '';
+    const badge = id === 'ollama' ? '' : saved ? ' <span class="badge ok">✔ 저장됨</span>' : (p.disabled ? '' : ' <span class="badge">미입력</span>');
+    const keyInput = saved
+      ? `<input data-k="apiKey" class="saved" type="text" autocomplete="off" spellcheck="false" value="${esc(shown)}" data-shown="${esc(shown)}" data-orig="${esc(p.apiKey)}" title="저장된 키입니다. 바꾸려면 이 칸을 클릭하고 새 키를 붙여넣으세요.">`
+      : `<input data-k="apiKey" type="password" placeholder="${p.disabled ? '고도화 단계에서 연결' : 'API 키 붙여넣기'}" value="${esc(p.apiKey)}" ${p.disabled ? 'disabled' : ''}>`;
+    return `
     <div class="prov ${p.disabled ? 'disabled' : ''}" data-id="${id}">
-      <div class="nm">${esc(p.label)}${p.hasKey && id !== 'ollama' ? ' <span class="badge ok">키 있음</span>' : ''}</div>
-      <input data-k="apiKey" type="password" placeholder="${p.disabled ? '고도화 단계에서 연결' : 'API 키'}" value="${esc(p.apiKey)}" ${p.disabled ? 'disabled' : ''}>
+      <div class="nm">${esc(p.label)}${badge}</div>
+      ${keyInput}
       <input data-k="baseUrl" placeholder="주소" value="${esc(p.baseUrl)}" title="접속 주소(보통 바꿀 필요 없음)" ${p.disabled ? 'disabled' : ''}>
-    </div>`).join('');
+    </div>`;
+  }).join('');
+  // 저장된 키 칸: 클릭하면 전체 선택(바로 덮어쓰기), 새로 입력하면 다시 가려서 표시
+  $$('#providers input.saved').forEach(el => {
+    el.addEventListener('focus', () => el.select());
+    el.addEventListener('input', () => { if (el.value !== el.dataset.shown) { el.type = 'password'; el.classList.remove('saved'); } });
+  });
   const provOpts = Object.entries(cfg.providers).map(([id, p]) => `<option value="${id}">${esc(p.label)}</option>`).join('');
   $('#roles').innerHTML = Object.entries(cfg.roles).map(([id, r]) => `
     <div class="role" data-id="${id}">
@@ -439,7 +453,10 @@ async function saveSettings(quiet) {
   const patch = { providers: {}, roles: {}, agent: {}, ui: {} };
   $$('#providers .prov').forEach(row => {
     const id = row.dataset.id;
-    patch.providers[id] = { apiKey: row.querySelector('[data-k=apiKey]').value.trim(), baseUrl: row.querySelector('[data-k=baseUrl]').value.trim() };
+    const keyEl = row.querySelector('[data-k=apiKey]');
+    // 저장된 키를 건드리지 않았으면 가려진 표시값 대신 '기존 키 유지' 신호(••••끝4자리)를 보낸다
+    const keyVal = keyEl.dataset.shown && keyEl.value.trim() === keyEl.dataset.shown ? keyEl.dataset.orig : keyEl.value.trim();
+    patch.providers[id] = { apiKey: keyVal, baseUrl: row.querySelector('[data-k=baseUrl]').value.trim() };
   });
   $$('#roles .role').forEach(row => {
     patch.roles[row.dataset.id] = { provider: row.querySelector('[data-k=provider]').value, model: row.querySelector('[data-k=model]').value.trim(), effort: row.querySelector('[data-k=effort]').value };

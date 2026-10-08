@@ -109,10 +109,10 @@ class ConfigStore {
   }
 
   update(patch) {
-    // 키가 '••••'로 시작하면(가린 값 그대로) 기존 키 유지
+    // 키가 '••••' 또는 '●'로 시작하면(가린 값 그대로) 기존 키 유지
     if (patch.providers) {
       for (const [id, p] of Object.entries(patch.providers)) {
-        if (p && typeof p.apiKey === 'string' && p.apiKey.startsWith('••••')) delete p.apiKey;
+        if (p && typeof p.apiKey === 'string' && (p.apiKey.startsWith('••••') || p.apiKey.startsWith('●'))) delete p.apiKey;
         if (!this.data.providers[id] && p) this.data.providers[id] = { type: 'openai', label: id, baseUrl: '', apiKey: '' };
       }
     }
