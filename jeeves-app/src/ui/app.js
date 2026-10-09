@@ -209,8 +209,9 @@ function setMode(m) {
   mode = m;
   document.body.classList.toggle('mode-ask', m === 'ask');
   document.body.classList.toggle('mode-act', m === 'act');
+  document.body.classList.toggle('mode-dev', m === 'dev');
   $$('#mode button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-  $('#input').placeholder = m === 'ask' ? '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)' : '시킬 일을 구체적으로 적어 주세요. 예) 네이버에서 가양역 근처 회의실 대여 3곳 찾아서 가격 비교';
+  $('#input').placeholder = m === 'dev' ? '개발할 내용을 구체적으로 적어 주세요. 예) 하루 일정을 시간 블록으로 짜는 플래너 앱을 만들어줘 (화면 시안 사진 첨부 가능)' : m === 'ask' ? '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)' : '시킬 일을 구체적으로 적어 주세요. 예) 네이버에서 가양역 근처 회의실 대여 3곳 찾아서 가격 비교';
 }
 $$('#mode button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
 setMode('ask');
@@ -426,7 +427,7 @@ async function sendMessage(textOverride, opts = {}) {
   const isSummary = opts.summarize;
   const atts = isSummary ? [] : (opts.attachments !== undefined ? opts.attachments : attachments);   // 다시 보내기는 그때 첨부 그대로
   if (!text && !isSummary && !atts.length) return;
-  if (!text && mode === 'act' && !isSummary) { addErr('작업 내용을 입력해 주세요. 첨부만으로는 무엇을 시킬지 알 수 없습니다.'); return; }
+  if (!text && (mode === 'act' || mode === 'dev') && !isSummary) { addErr('작업 내용을 입력해 주세요. 첨부만으로는 무엇을 시킬지 알 수 없습니다.'); return; }
   $('#input').value = '';
   const welcome = box.querySelector('.welcome');
   if (welcome) welcome.remove();
@@ -442,6 +443,20 @@ async function sendMessage(textOverride, opts = {}) {
       if (ch === 'raise') setChatGrade(d.grade);
       gradeAck = true;
     }
+  }
+  if (mode === 'dev' && !isSummary) {
+    if (!text) { addErr('개발할 내용을 입력해 주세요.'); return; }
+    if (!(cfg.dev && cfg.dev.folder)) { const f = await pickDevFolder(); if (!f) { $('#input').value = text; return; } }
+    const p = await api.dev.plan({ goal: text, infoGrade: chatGrade, folder: cfg.dev.folder, attachments: atts });
+    if (!p.ok || !p.chain || !p.chain.length) { addErr(p.error || '개발 계획을 만들지 못했습니다.'); $('#input').value = text; return; }
+    const ch = await askDevPlan(p);
+    if (ch.cancel) { $('#input').value = text; return; }
+    addUser(text, `🛠 개발(Dev) · L${p.difficulty.level} ${p.difficulty.label} · 🔒${chatGrade}`, { kind: 'act', attachments: atts });
+    if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
+    const r = await api.dev.start({ goal: text, infoGrade: chatGrade, folder: p.folder, attachments: atts, engineId: ch.engineId || undefined, projectId: pendingProject || activeProject });
+    if (r.error) { addErr(r.error); return; }
+    ensureCard(r.id, { goal: text });
+    return;
   }
   if (mode === 'act' && !isSummary) {
     if (!text) { addErr('작업 내용을 입력해 주세요. 첨부만으로는 무엇을 시킬지 알 수 없습니다.'); return; }
@@ -521,6 +536,52 @@ box.addEventListener('click', e => {
   if (q.dataset.quick === 'example') { setMode('act'); $('#input').value = '구글에서 "전기안전관리법 시행규칙 개정" 최신 뉴스를 검색해서 상위 3개 기사의 제목, 언론사, 날짜, 핵심 내용을 정리해 줘'; $('#input').focus(); }
 });
 
+// ── 개발(Dev) 모드 ──────────────────────────────────────
+async function pickDevFolder() {
+  const r = await api.dev.pickFolder();
+  if (r && r.error) addErr(r.error);
+  if (!r || !r.ok) return null;
+  cfg.dev = { ...(cfg.dev || {}), folder: r.folder };
+  syncDevFolder();
+  return r.folder;
+}
+function syncDevFolder() {
+  const b = $('#dev-folder'); if (!b) return;
+  const f = (cfg && cfg.dev && cfg.dev.folder) || '';
+  b.textContent = f ? '📁 ' + (f.split(/[\\/]/).filter(Boolean).pop() || f) : '📁 폴더 선택';
+  b.title = f ? f + ' (눌러서 바꾸기)' : '개발할 프로젝트 폴더 선택';
+}
+$('#dev-folder').onclick = () => pickDevFolder();
+const COST_TXT = { free: '무료', subscription: '구독', api: 'API(과금)' };
+function askDevPlan(p) {
+  return new Promise(resolve => {
+    const card = document.createElement('div');
+    card.className = 'prompt ask devplan';
+    const chain = p.chain.map((c, i) => `${i + 1}. ${esc(c.label)} <small class="muted">(${COST_TXT[c.cost] || c.cost}${c.weak ? ' · ⚠ 이 난이도에는 약함' : ''})</small>`).join('<br>');
+    card.innerHTML = `<div class="q">🛠 개발 계획 확인</div>
+      <div>난이도 <b>L${p.difficulty.level} ${esc(p.difficulty.label)}</b> <small class="muted">— ${esc(p.difficulty.reasons.join(', '))}</small></div>
+      <div>📁 ${esc(p.folder)} <small class="muted">${p.empty ? '(비어 있음 — 새로 만들기)' : `(파일 ${p.fileCount}${p.fileCount >= 3000 ? '+' : ''}개 — 기존 프로젝트 수정)`}</small></div>
+      <div>🔒 정보 등급 ${p.grade}</div>
+      <div style="margin-top:4px"><b>맡길 순서</b> <small class="muted">(한도·로그인 문제가 생기면 다음 엔진으로 자동 전환)</small><br>${chain}</div>
+      ${p.skipped.length ? `<details><summary class="muted">제외된 엔진 ${p.skipped.length}개</summary><small class="muted">${p.skipped.map(x => esc(x.label) + ': ' + esc(x.why)).join('<br>')}</small></details>` : ''}
+      <div class="why">이 폴더 안에서만 파일을 만들고 고칩니다. 삭제·인터넷 전송·시스템 변경 명령은 막혀 있고 .env 같은 비밀 파일은 읽지 못합니다. 단, 개발 AI가 프로그램을 실행할 수 있으므로 <b>중요한 폴더는 미리 백업</b>하세요.</div>
+      <div class="acts"><select class="dp-eng"><option value="">자동 (위 순서)</option>${p.chain.map(c => `<option value="${esc(c.id)}">${esc(c.label)} 먼저</option>`).join('')}</select>
+        <button class="primary" data-a="go">이대로 시작</button><button class="ghost" data-a="no">취소</button></div>`;
+    box.appendChild(card); scrollDown();
+    card.querySelector('[data-a=go]').onclick = () => { const v = card.querySelector('.dp-eng').value; card.remove(); resolve({ engineId: v }); };
+    card.querySelector('[data-a=no]').onclick = () => { card.remove(); resolve({ cancel: true }); };
+  });
+}
+function devDoneStats(ev) {
+  const ch = (ev.chain || []).map(x => `${esc(x.label)} ${x.ok ? '✓' : '✗'}`).join(' → ');
+  const c = ev.changes;
+  const list = (a, n) => a.slice(0, n).map(esc).join(', ') + (a.length > n ? ` 외 ${a.length - n}개` : '');
+  let h = `<div class="devstats">엔진: ${ch || '-'} · 난이도 L${ev.level || '?'}${ev.estUsd ? ` · 참고용 추정 $${ev.estUsd.toFixed(3)} (구독이라 실제 청구 아님)` : ''}`;
+  if (c) h += `<br>폴더 변경: 새 파일 ${c.added.length}개${c.added.length ? ' (' + list(c.added, 6) + ')' : ''} · 수정 ${c.modified.length}개${c.modified.length ? ' (' + list(c.modified, 6) + ')' : ''} · 삭제 ${c.removed.length}개${c.removed.length ? ' (' + list(c.removed, 6) + ')' : ''}${c.truncated ? ' · 파일이 많아 일부만 비교' : ''}`;
+  if (ev.denied && ev.denied.length) h += `<br>막힌 요청(허용 목록 밖): ${ev.denied.map(esc).join(' / ')}`;
+  return h + '</div>';
+}
+
 // ── 작업 카드 ───────────────────────────────────────────
 const ICON = { start: '▶', thinking: '…', observe: '👁', say: '💭', action: '✓', blocked: '⛔', confirm: '❓', ask: '❓', error: '⚠', done: '■' };
 function ensureCard(id, { goal } = {}) {
@@ -556,7 +617,16 @@ api.agent.onEvent(ev => {
   const c = ensureCard(ev.taskId, { goal: ev.goal });
   if (ev.tabId) c.tabId = ev.tabId;
   switch (ev.type) {
-    case 'created': if (ev.title) c.el.querySelector('.ttl').textContent = ev.title; break;
+    case 'created':
+      if (ev.title) c.el.querySelector('.ttl').textContent = ev.title;
+      if (ev.dev) {
+        ['shot', 'show'].forEach(k => { const b = c.el.querySelector(`[data-act=${k}]`); if (b) b.remove(); });
+        c.el.querySelector('.cost').textContent = '구독';
+        const d = ev.devInfo || {};
+        addStep(c, 'info', '🛠', `개발 모드 · 난이도 L${d.level} ${d.label || ''} (${(d.reasons || []).join(', ')})`);
+        addStep(c, 'info', '📁', d.folder || '');
+      }
+      break;
     case 'engine': addStep(c, 'info', '🔗', ev.text); break;
     case 'limit': {
       const at = new Date(ev.resumeAt);
@@ -567,7 +637,7 @@ api.agent.onEvent(ev => {
     }
     case 'resume': c.el.querySelector('.badge').className = 'badge run'; c.el.querySelector('.badge').textContent = '진행 중'; addStep(c, 'esc', '▶', ev.text); break;
     case 'title': c.el.querySelector('.ttl').textContent = ev.title; break;
-    case 'start': addStep(c, '', ICON.start, `시작 (${ev.engine === 'claude-code' ? '🔗 구독: Claude Code' : ev.mode === 'hybrid' ? '⚡ Jev + Claude 혼합' : 'Claude만'}): ` + ev.goal); break;
+    case 'start': if (ev.dev) { addStep(c, '', ICON.start, `${ev.attempt}번째 엔진: ${ev.engineLabel}`); break; } addStep(c, '', ICON.start, `시작 (${ev.engine === 'claude-code' ? '🔗 구독: Claude Code' : ev.mode === 'hybrid' ? '⚡ Jev + Claude 혼합' : 'Claude만'}): ` + ev.goal); break;
     case 'cost': c.el.querySelector('.cost').textContent = ev.subscription ? '구독' : `${ev.unknown ? '≥' : ''}${ev.krw.toLocaleString()}원`; break;
     case 'escalate': addStep(c, 'esc', '⬆', `상위 모델로 넘김 — ${ev.reason}`); break;
     case 'info': addStep(c, 'info', 'ℹ', ev.text); break;
@@ -610,7 +680,7 @@ api.agent.onEvent(ev => {
       if (c.lastSay && c.lastSay.text && (ev.summary || '').trim() === c.lastSay.text) c.lastSay.el.remove();
       const r = c.el.querySelector('.result');
       r.classList.remove('hidden');
-      r.innerHTML = md(ev.summary) + (ev.engine === 'claude-code' ? `<div class="stats">구독 사용(Claude Code)${ev.retries ? ` · 한도 대기 후 재개 ${ev.retries}회` : ''}${ev.estUsd ? ` · 참고용 추정 $${ev.estUsd.toFixed(3)} (구독이라 실제 청구 아님)` : ''}</div>` : `<div class="stats">비용 약 ${(ev.costKrw || 0).toLocaleString()}원${ev.costUnknown ? ' 이상(단가 모르는 모델 포함)' : ''} · Claude ${ev.llmCalls || 0}회 · Jev ${ev.jevCalls || 0}회(행동 ${ev.jevActs || 0}) · 행동 ${ev.actions || 0}${ev.escalated ? ' · 상위 모델 사용' : ''}</div>`);
+      r.innerHTML = md(ev.summary) + (ev.dev ? devDoneStats(ev) : ev.engine === 'claude-code' ? `<div class="stats">구독 사용(Claude Code)${ev.retries ? ` · 한도 대기 후 재개 ${ev.retries}회` : ''}${ev.estUsd ? ` · 참고용 추정 $${ev.estUsd.toFixed(3)} (구독이라 실제 청구 아님)` : ''}</div>` : `<div class="stats">비용 약 ${(ev.costKrw || 0).toLocaleString()}원${ev.costUnknown ? ' 이상(단가 모르는 모델 포함)' : ''} · Claude ${ev.llmCalls || 0}회 · Jev ${ev.jevCalls || 0}회(행동 ${ev.jevActs || 0}) · 행동 ${ev.actions || 0}${ev.escalated ? ' · 상위 모델 사용' : ''}</div>`);
       scrollDown(); notify(ev.success ? 'Jeeves: 작업 완료' : 'Jeeves: 작업 중단', ev.summary.slice(0, 100));
       break;
     }
@@ -754,6 +824,7 @@ async function openSettings(msg) {
   $('#homepage').value = cfg.ui.homepage;
   $('#engine-grade').value = cfg.engine.maxGrade || 'I'; $('#engine-chat').checked = cfg.engine.useForChat !== false; $('#failover').checked = cfg.failover !== false;
   $('#engine-type').value = cfg.engine.type; $('#cc-path').value = cfg.engine.claudePath || ''; $('#cc-model').value = cfg.engine.claudeModel || '';
+  loadDevSettings();
   refreshMcp(); checkClaude(false);
   try {
     const rs = (await api.config.routerStatus()).filter(x => x.hasKey || x.calls || x.fails);
@@ -795,11 +866,58 @@ async function saveSettings(quiet) {
   };
   patch.engine = { type: $('#engine-type').value, claudePath: $('#cc-path').value.trim(), claudeModel: $('#cc-model').value, maxGrade: $('#engine-grade').value, useForChat: $('#engine-chat').checked };
   patch.failover = $('#failover').checked;
+  patch.dev = collectDevSettings();
   patch.infoGrade = $('#info-grade').value;
   patch.ui = { homepage: $('#homepage').value.trim() || 'https://www.google.com', krwPerUsd: num($('#krw-rate').value, 500, 5000, 1400) };
   cfg = await api.config.update(patch);
   if (!quiet) { renderProviders(); renderRoles(); $('#save-msg').textContent = '저장했습니다.'; setTimeout(() => { $('#save-msg').textContent = ''; }, 2000); }
 }
+// ── 설정: 개발 모드 ──
+let devCustom = [];
+function loadDevSettings() {
+  const d = cfg.dev || {};
+  $('#dev-claude').checked = !(d.claude && d.claude.enabled === false);
+  $('#dev-claude-grade').value = d.claudeMaxGrade || 'I';
+  const cx = d.codex || {};
+  $('#dev-codex').checked = !!cx.enabled; $('#dev-codex-path').value = cx.path || ''; $('#dev-codex-args').value = cx.args || '';
+  $('#dev-codex-level').value = String(cx.maxLevel || 3); $('#dev-codex-grade').value = cx.maxGrade || 'I';
+  $('#dev-prefer').value = (d.prefer || [])[0] === 'codex' ? 'codex' : 'claude';
+  devCustom = JSON.parse(JSON.stringify(d.custom || []));
+  renderDevCustom();
+}
+function renderDevCustom() {
+  const opt = (arr, v) => arr.map(([k, t]) => `<option value="${k}"${String(v) === k ? ' selected' : ''}>${t}</option>`).join('');
+  $('#dev-custom').innerHTML = devCustom.map((c, i) => `<div class="dc" data-i="${i}" data-id="${esc(c.id || '')}">
+    <input data-k="label" placeholder="이름 (예: Gemini CLI)" value="${esc(c.label || '')}"><input data-k="bin" placeholder="실행 파일 이름 또는 전체 경로" value="${esc(c.bin || '')}">
+    <input class="wide" data-k="args" placeholder="실행 옵션 — 지시문을 옵션에 넣으려면 {prompt}, 비우면 표준입력, 폴더는 {cwd}" value="${esc(c.args || '')}">
+    <span>최대 난이도 <select data-k="maxLevel">${opt([['1', 'L1'], ['2', 'L2'], ['3', 'L3'], ['4', 'L4']], c.maxLevel || 2)}</select> 최고 등급 <select data-k="maxGrade">${opt([['P', 'P'], ['I', 'I'], ['C', 'C'], ['S', 'S(로컬만)']], c.maxGrade || 'I')}</select> 비용 <select data-k="cost">${opt([['free', '무료'], ['subscription', '구독'], ['api', 'API']], c.cost || 'subscription')}</select></span>
+    <span><label><input type="checkbox" data-k="local"${c.local ? ' checked' : ''}> 내 PC 로컬 모델</label> <label><input type="checkbox" data-k="enabled"${c.enabled !== false ? ' checked' : ''}> 사용</label> <button class="ghost" type="button" data-del="${i}">삭제</button></span></div>`).join('');
+}
+function collectDevCustom() {
+  return [...$$('#dev-custom .dc')].map((row, i) => {
+    const g = k => row.querySelector(`[data-k=${k}]`);
+    const label = g('label').value.trim();
+    const id = row.dataset.id || (label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20) || 'cli') + '-' + (i + 1);
+    return { id, label, bin: g('bin').value.trim(), args: g('args').value.trim(), maxLevel: Number(g('maxLevel').value), maxGrade: g('maxGrade').value, cost: g('cost').value, local: g('local').checked, enabled: g('enabled').checked };
+  }).filter(c => c.bin);
+}
+function collectDevSettings() {
+  const first = $('#dev-prefer').value === 'codex' ? ['codex', 'claude'] : ['claude', 'codex'];
+  return { prefer: first, claudeMaxGrade: $('#dev-claude-grade').value, claude: { enabled: $('#dev-claude').checked },
+    codex: { enabled: $('#dev-codex').checked, path: $('#dev-codex-path').value.trim(), args: $('#dev-codex-args').value.trim(), maxLevel: Number($('#dev-codex-level').value), maxGrade: $('#dev-codex-grade').value },
+    custom: collectDevCustom() };
+}
+$('#dev-custom-add').onclick = () => { devCustom = collectDevCustom().concat([{ id: '', label: '', bin: '', args: '', maxLevel: 2, maxGrade: 'I', cost: 'subscription', local: false, enabled: true }]); renderDevCustom(); };
+$('#dev-custom').addEventListener('click', e => { const d = e.target.closest('[data-del]'); if (!d) return; devCustom = collectDevCustom(); devCustom.splice(Number(d.dataset.del), 1); renderDevCustom(); });
+$('#dev-check').onclick = async () => {
+  $('#dev-status').textContent = '찾는 중…';
+  await saveSettings(true);
+  const r = await api.dev.check();
+  const parts = [r.claude.path ? `Claude Code ✅ ${r.claude.version || ''}` : 'Claude Code ❌ 못 찾음'];
+  parts.push(r.codex.enabled ? (r.codex.path ? `Codex ✅ ${r.codex.version || ''}` : 'Codex ❌ 못 찾음(설치·경로 확인)') : 'Codex 꺼짐');
+  for (const c of r.custom) parts.push(`${c.id} ${c.found ? '✅' : '❌'}`);
+  $('#dev-status').textContent = parts.join(' · ');
+};
 $('#add-provider-btn').onclick = () => { $('#add-provider').classList.toggle('hidden'); $('#ap-msg').textContent = ''; };
 $('#ap-cancel').onclick = () => $('#add-provider').classList.add('hidden');
 $('#ap-ok').onclick = async () => {
@@ -866,7 +984,7 @@ $('#settings').addEventListener('click', e => { if (e.target.id === 'settings') 
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#settings').classList.contains('hidden')) closeSettings(); });
 
 // 첫 실행: Anthropic 키가 없으면 설정을 연다
-api.config.get().then(c => { cfg = c; setChatGrade(c.infoGrade || 'I'); sizes.preview = c.ui.previewWidth || 400; sizes.panel = c.ui.panelWidth || 420; applySizes(); setLayout(c.ui.layout || 'chat', { save: false }); syncEngineBadge(); if (c.engine.type !== 'claude-code' && !Object.values(c.providers).some(p => p.hasKey && !/127\.0\.0\.1|localhost/.test(p.baseUrl || ''))) setTimeout(() => openSettings('먼저 사용할 AI 공급자의 API 키를 입력하고 저장해 주세요.'), 600); });
+api.config.get().then(c => { cfg = c; setChatGrade(c.infoGrade || 'I'); sizes.preview = c.ui.previewWidth || 400; sizes.panel = c.ui.panelWidth || 420; applySizes(); setLayout(c.ui.layout || 'chat', { save: false }); syncEngineBadge(); syncDevFolder(); if (c.engine.type !== 'claude-code' && !Object.values(c.providers).some(p => p.hasKey && !/127\.0\.0\.1|localhost/.test(p.baseUrl || ''))) setTimeout(() => openSettings('먼저 사용할 AI 공급자의 API 키를 입력하고 저장해 주세요.'), 600); });
 
 // 자동 전환 알림(한도·잔액 소진 등으로 다른 AI 도구로 넘어갈 때)
 api.config.onNotice(m => {

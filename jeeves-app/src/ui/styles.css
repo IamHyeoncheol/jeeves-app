@@ -119,7 +119,14 @@ button.pill.on { background: var(--accent); color: var(--accent-ink); border-col
 #composer-opts { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 #composer-opts .spacer { flex: 1; }
 #composer-opts select { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); padding: 2px 4px; }
-body.mode-ask .act-only, body.mode-act .ask-only { display: none; }
+body:not(.mode-act) .act-only, body:not(.mode-ask) .ask-only, body:not(.mode-dev) .dev-only { display: none; }
+.devplan { margin: 8px 0; line-height: 1.55; font-size: 13px; }
+.devplan .acts { margin-top: 8px; align-items: center; }
+.devplan select { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); padding: 3px 4px; }
+.dc { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.dc input[type=text], .dc input:not([type]) { width: 100%; box-sizing: border-box; }
+.dc .wide { grid-column: 1 / -1; }
+.devstats { font-size: 12px; color: var(--ink-2); margin-top: 6px; line-height: 1.5; }
 button.primary { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 6px 16px; cursor: pointer; font-weight: 600; }
 button.primary:disabled { opacity: .5; cursor: default; }
 button.ghost { background: none; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }

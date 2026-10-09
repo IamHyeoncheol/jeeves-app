@@ -56,8 +56,45 @@ const DEFAULTS = {
   // 작업 엔진: 'api' = API 키(Claude·Jev 등, 사용량만큼 과금) / 'claude-code' = 내 PC 의 정품 Claude Code(내 구독)
   engine: { type: 'api', claudePath: '', claudeModel: 'sonnet', maxGrade: 'I', useForChat: true },   // maxGrade: 구독 엔진이 받을 수 있는 최고 정보 등급(S는 항상 차단)
   // 외부 에이전트(Claude Code·Codex)가 Jeeves 브라우저를 쓰게 하는 창구 (내 PC 안에서만)
-  mcp: { enabled: true, port: 47840, token: '', allowExternal: false }   // allowExternal: 외부 에이전트(Codex 등)가 지브스를 직접 부리는 길(기본 꺼짐: 지브스가 최상위여야 함)
+  mcp: { enabled: true, port: 47840, token: '', allowExternal: false },
+  // 개발 모드: 지브스가 개발 AI(Claude Code·Codex·기타 명령줄 AI)를 고른 프로젝트 폴더 안에서만 실행. 난이도(L1~L4)에 따라 엔진을 고른다.
+  dev: {
+    folder: '', prefer: ['claude', 'codex'], claudeMaxGrade: 'I',
+    claude: { enabled: true, models: { haiku: [1, 2], sonnet: [1, 3], opus: [1, 4] } },
+    codex: { enabled: false, path: '', args: 'exec --sandbox workspace-write --skip-git-repo-check -', maxLevel: 3, maxGrade: 'I' },
+    custom: []   // 기타 개발 AI: { id, label, bin, args('{prompt}' 또는 표준입력, '{cwd}'), enabled, maxLevel(1~4), maxGrade(P|I|C|S는 local만), cost(free|subscription|api), local }
+  }   // allowExternal: 외부 에이전트(Codex 등)가 지브스를 직접 부리는 길(기본 꺼짐: 지브스가 최상위여야 함)
 };
+
+const str = (v, n) => typeof v === 'string' ? v.trim().slice(0, n) : undefined;
+const lvl = v => { const n = Math.round(Number(v)); return n >= 1 && n <= 4 ? n : undefined; };
+function sanitizeDev(d) {
+  const out = {};
+  if (typeof d.folder === 'string') out.folder = d.folder.trim().slice(0, 500);
+  if (Array.isArray(d.prefer)) out.prefer = d.prefer.filter(x => ['claude', 'codex', 'cli'].includes(x));
+  if (['P', 'I', 'C'].includes(d.claudeMaxGrade)) out.claudeMaxGrade = d.claudeMaxGrade;
+  if (d.claude && typeof d.claude.enabled === 'boolean') out.claude = { enabled: d.claude.enabled };   // 모델별 난이도 범위는 화면에서 바꾸지 않는다
+  if (d.codex) {
+    const c = {};
+    if (typeof d.codex.enabled === 'boolean') c.enabled = d.codex.enabled;
+    const p = str(d.codex.path, 500); if (p !== undefined) c.path = p;
+    const a = str(d.codex.args, 300); if (a !== undefined && a) c.args = a;
+    if (lvl(d.codex.maxLevel)) c.maxLevel = lvl(d.codex.maxLevel);
+    if (['P', 'I', 'C'].includes(d.codex.maxGrade)) c.maxGrade = d.codex.maxGrade;
+    out.codex = c;
+  }
+  if (Array.isArray(d.custom)) {
+    out.custom = d.custom.slice(0, 6).map(c => {
+      const id = String((c && c.id) || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
+      const bin = str(c && c.bin, 500);
+      if (!id || !bin) return null;
+      const local = c.local === true;
+      return { id, label: str(c.label, 40) || id, bin, args: str(c.args, 300) || '', enabled: c.enabled !== false, maxLevel: lvl(c.maxLevel) || 2,
+        maxGrade: ['P', 'I', 'C'].includes(c.maxGrade) || (local && c.maxGrade === 'S') ? c.maxGrade : 'I', cost: ['free', 'subscription', 'api'].includes(c.cost) ? c.cost : 'subscription', local };
+    }).filter(Boolean);
+  }
+  return out;
+}
 
 function deepMerge(base, extra) {
   if (Array.isArray(base) || typeof base !== 'object' || base === null) return extra === undefined ? base : extra;
@@ -167,6 +204,7 @@ class ConfigStore {
     }
     if (patch.mcp && patch.mcp.allowExternal !== undefined) patch.mcp.allowExternal = patch.mcp.allowExternal === true;
     if (patch.failover !== undefined) patch.failover = !!patch.failover;
+    if (patch.dev) patch.dev = sanitizeDev(patch.dev);
     delete patch.infoGradeV;
     delete patch.removedProviders;   // 삭제 기록은 removeProvider() 로만 바꾼다
     this.data = deepMerge(this.data, patch);

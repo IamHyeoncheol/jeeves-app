@@ -56,6 +56,12 @@ contextBridge.exposeInMainWorld('jeeves', {
     showTab: id => ipcRenderer.invoke('agent:show-tab', id),
     onEvent: fn => on('agent:event', fn)
   },
+  dev: {
+    plan: a => ipcRenderer.invoke('dev:plan', a),
+    start: a => ipcRenderer.invoke('dev:start', a),
+    pickFolder: () => ipcRenderer.invoke('dev:pick-folder'),
+    check: () => ipcRenderer.invoke('dev:check')
+  },
   usage: () => ipcRenderer.invoke('usage:get'),
   grade: { suspect: text => ipcRenderer.invoke('grade:suspect', String(text || '')) },
   mcp: {
