@@ -38,7 +38,7 @@ function extractAnswer(regionText, question) {
   if (q.length < 4) return '';
   const at = flat.lastIndexOf(q);
   if (at < 0) return '';
-  return src.slice(idx[at + q.length - 1] + 1).replace(/^[\s"'”“’‘)\]*_`]+/, '').trim();
+  return src.slice(idx[at + q.length - 1] + 1).replace(/^[\s"'”“’‘)\]*_`.!?。…]+/, '').trim();
 }
 
 const prepareScript = sel => `/*JV:prepare*/(() => {
