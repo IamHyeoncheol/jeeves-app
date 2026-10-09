@@ -12,9 +12,6 @@ let chatGrade = 'I';
 function setChatGrade(g) {
   if (!GRADE_ORDER.includes(g)) return;
   chatGrade = g;
-  const sel = $('#chat-grade'); if (!sel) return;
-  sel.value = g;
-  const lab = sel.closest('.grade-pick'); if (lab) { lab.classList.remove('g-C', 'g-S'); if (g === 'C' || g === 'S') lab.classList.add('g-' + g); }
 }
 let mode = 'ask';
 const cards = new Map(); // taskId → 작업 카드 상태
@@ -313,7 +310,6 @@ async function sendMessage(textOverride, opts = {}) {
   if (res.ok) addAI(res.text, res.model + (res.costKrw != null ? ` · 약 ${res.costKrw}원` : '')); else addErr(res.error);
 }
 $('#send').onclick = () => sendMessage();
-$('#chat-grade').onchange = () => setChatGrade($('#chat-grade').value);
 $('#input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); }
 });

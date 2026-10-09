@@ -192,8 +192,6 @@ code.copy { cursor: pointer; }
 .gradewarn { border: 1px solid #c0392b; background: #fff6f4; }
 .gradewarn code { background: #fde3de; padding: 0 4px; border-radius: 4px; }
 .gradewarn .gw-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.grade-pick { display: inline-flex; align-items: center; gap: 2px; }
-.grade-pick.g-C select, .grade-pick.g-S select { border-color: #c0392b; color: #c0392b; font-weight: 600; }
 
 /* ── 0.3.1 배치: 작업 화면 중심(chat) / 웹 크게(web) ── */
 #body { position: relative; }
