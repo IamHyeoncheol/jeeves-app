@@ -215,6 +215,21 @@ $$('#panel-tabs button').forEach(b => b.onclick = () => {
   if (b.dataset.view === 'history') renderHistory();
 });
 
+// 대화 글자 크기: 화면 배율(80%~200%, 10% 단계)을 기억해 두고 대화 영역에만 적용한다
+const FS_MIN = 80, FS_MAX = 200, FS_STEP = 10;
+let chatZoom = (() => { try { const v = parseInt(localStorage.getItem('jv-chat-zoom'), 10); return v >= FS_MIN && v <= FS_MAX ? v : 100; } catch (_) { return 100; } })();
+function applyChatZoom(keepBottom) {
+  const b = $('#messages'); const atBottom = b && b.scrollHeight - b.scrollTop - b.clientHeight < 40;
+  document.documentElement.style.setProperty('--chat-zoom', String(chatZoom / 100));
+  $('#fs-reset').textContent = chatZoom + '%';
+  $('#fs-down').disabled = chatZoom <= FS_MIN; $('#fs-up').disabled = chatZoom >= FS_MAX;
+  try { localStorage.setItem('jv-chat-zoom', String(chatZoom)); } catch (_) {}
+  if (keepBottom && atBottom && b) b.scrollTop = b.scrollHeight;
+}
+$('#fs-down').onclick = () => { chatZoom = Math.max(FS_MIN, chatZoom - FS_STEP); applyChatZoom(true); };
+$('#fs-up').onclick = () => { chatZoom = Math.min(FS_MAX, chatZoom + FS_STEP); applyChatZoom(true); };
+$('#fs-reset').onclick = () => { chatZoom = 100; applyChatZoom(true); };
+applyChatZoom(false);
 function setMode(m) {
   mode = m;
   document.body.classList.toggle('mode-ask', m === 'ask');
