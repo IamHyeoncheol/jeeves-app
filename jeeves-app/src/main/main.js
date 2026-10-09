@@ -195,7 +195,7 @@ async function ideaSend({ text, projectId }) {
   try { res = await router.call('idea', { system: '', messages: [{ role: 'user', content: [{ type: 'text', text: ideaFrame(q) }] }], maxTokens: 4096, infoGrade: 'P', noFailover: true }); }
   catch (e) { return { ok: false, error: e.message }; }
   const answer = ideaBanner(res.content.filter(b => b.type === 'text').map(b => b.text).join('\n'));
-  const meta = `💡 아이디어 · ${res.model} · 근거 미검증`;
+  const meta = `💡 아이디어 · ${res.model} · 아이디어 후보`;
   let convId = null, title = '';
   try {
     const conv = convs.create({ title: ('💡 ' + q).replace(/\s+/g, ' ').trim(), projectId, grade: 'P' });

@@ -24,14 +24,14 @@ function ideaCheck(text) {
 // 활용안 A: 다른 분야의 원리를 가져오는 "아이디어 후보" 요청 틀. 근거를 못 대면 "확인 불가"라고 쓰게 한다.
 function frame(question) {
   return `다음 주제에 대해, 서로 다른 분야에서 쓰이는 원리를 가져와 적용할 수 있는 접근을 5~10가지 제안해 주세요.
-각 접근마다 이 항목을 쓰세요: 원래 분야 / 핵심 원리 / 적용 방법 / 근거 논문(제목·저자·연도·DOI) / 한계.
-없는 논문을 지어내지 말고, 확실하지 않으면 근거 논문 칸에 "확인 불가"라고 쓰세요. 한국어로 쉽게 설명해 주세요.
+각 접근마다 이 항목을 쓰세요: 원래 분야 / 핵심 원리 / 적용 방법 / 한계 / 확인용 영어 검색어 2~3개.
+논문 제목·저자·DOI·수치는 쓰지 마세요. 모르는 것은 지어내지 말고 "확인 불가"라고 쓰세요. 한국어로 쉽게 설명해 주세요.
 
 [주제]
 ${String(question || '').trim()}`;
 }
 
-const BANNER = '⚠️ ExoLobe 답변 — 근거 논문은 검증되지 않았습니다. 아이디어 후보로만 쓰고, 논문·수치는 Claude 등으로 확인한 뒤 사용하세요.';
+const BANNER = '⚠️ ExoLobe 답변 — 아이디어 후보입니다. 사실·수치는 검증되지 않았으니 영어 검색어로 확인한 뒤 사용하세요.';
 const withBanner = answer => `${BANNER}\n\n${String(answer || '').trim()}`;
 
 module.exports = { ideaCheck, frame, withBanner, BANNER, MAX_LEN };

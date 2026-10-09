@@ -24,7 +24,7 @@ const cfgOf = (over = {}) => ({
   await t('금액 숫자는 막음', () => { for (const w of ['단가 5만원', '매출 3억 목표', '비용 $200']) assert.ok(!ideaCheck(w).ok, w); });
   await t('기밀·비밀 의심어는 막음', () => { for (const w of ['계약서 초안 아이디어', '비밀번호 관리', '거래처 연락처 정리']) assert.ok(!ideaCheck(w).ok, w); });
   await t('AI 모델 이름은 막음', () => assert.ok(!ideaCheck('Claude 보다 나은 방법').ok));
-  await t('질문 틀: 주제 포함, 논문 지어내기 금지 문구', () => { const f = frame('열 전달 개선'); assert.ok(f.includes('열 전달 개선') && f.includes('확인 불가') && f.includes('근거 논문')); });
+  await t('질문 틀: 주제 포함, 논문 지어내기 금지 문구', () => { const f = frame('열 전달 개선'); assert.ok(f.includes('열 전달 개선') && f.includes('확인 불가') && f.includes('영어 검색어') && f.includes('논문 제목·저자·DOI')); });
   await t('답변 앞에 미검증 안내', () => assert.ok(withBanner('답').startsWith('⚠️ ExoLobe 답변')));
   await t('웹 로그인형은 대화 부문으로 쓸 수 없음', () => {
     const r = new ModelRouter(() => cfgOf(), async () => { throw new Error('no'); });
