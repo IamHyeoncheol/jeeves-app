@@ -627,7 +627,7 @@ function addStep(c, cls, icon, text) {
   c.steps.scrollTop = c.steps.scrollHeight;
   return d;
 }
-api.agent.onEvent(ev => {
+function onAgentEvent(ev) {
   const c = ensureCard(ev.taskId, { goal: ev.goal });
   if (ev.tabId) c.tabId = ev.tabId;
   switch (ev.type) {
@@ -699,7 +699,8 @@ api.agent.onEvent(ev => {
       break;
     }
   }
-});
+}
+api.agent.onEvent(onAgentEvent);
 
 function notify(title, body) {
   if (document.hasFocus()) return;
@@ -1011,6 +1012,7 @@ api.config.onNotice(m => {
 
 // ── 왼쪽 목록: 프로젝트·대화(Chat)·작업(Work) ───────────────────
 let curConvId = null;        // 지금 열려 있는 대화(아직 첫 답을 받기 전이면 null)
+let activeWorkKey = null;      // 지금 열어 본 작업·개발 기록(왼쪽 목록 강조용)
 let activeProject = null;    // 지금 고른 프로젝트(새 대화·작업이 여기로 들어감)
 let pendingProject = null;   // "프로젝트 ＋"로 시작한 새 대화가 들어갈 프로젝트
 let sbData = { projects: [], convs: [], works: [] };
@@ -1030,7 +1032,7 @@ function renderSidebar() {
   sb.classList.toggle('collapsed', !!sbState.hidden);
   const q = $('#sb-search').value.trim().toLowerCase();
   const convItem = (c, child) => `<div class="sb-item ${child ? 'child' : ''} ${c.id === curConvId ? 'on' : ''}" data-conv="${esc(c.id)}" title="${esc(c.title)}">${sbEdit && sbEdit.type === 'conv' && sbEdit.id === c.id ? `<input class="sb-edit" value="${esc(c.title)}">` : `<span class="t">${esc(c.title)}</span><button class="more" data-more="conv:${esc(c.id)}" title="더보기">⋯</button>`}</div>`;
-  const workItem = (w, child) => `<div class="sb-item ${child ? 'child' : ''}" data-work="${esc(w.key)}" title="${esc(w.goal || w.title)}"><span class="t">${esc(String(w.title).replace(/^🛠\s*/, ''))}</span><span class="st">${w.running ? SB_ICO.run : w.success ? SB_ICO.ok : SB_ICO.no}</span>${w.running ? '' : `<button class="more" data-more="work:${esc(w.at)}" title="더보기">⋯</button>`}</div>`;
+  const workItem = (w, child) => `<div class="sb-item ${child ? 'child' : ''} ${w.key === activeWorkKey ? 'on' : ''}" data-work="${esc(w.key)}" title="${esc(w.goal || w.title)}"><span class="t">${esc(String(w.title).replace(/^🛠\s*/, ''))}</span><span class="st">${w.running ? SB_ICO.run : w.success ? SB_ICO.ok : SB_ICO.no}</span>${w.running ? '' : `<button class="more" data-more="work:${esc(w.at)}" title="더보기">⋯</button>`}</div>`;
   const convs = sbData.convs.filter(c => sbMatch(q, c.title)), allW = sbData.works.filter(w => sbMatch(q, w.title, w.goal));
   const works = allW.filter(w => w.kind !== 'dev'), devs = allW.filter(w => w.kind === 'dev');
   let ph = sbNewProj ? '<div class="sb-item"><input class="sb-edit" id="sb-newproj-input" placeholder="프로젝트 이름"></div>' : '';
@@ -1088,7 +1090,7 @@ document.addEventListener('click', e => { if (!e.target.closest('.sb-menu') && !
 function showPanelView(v) { const b = document.querySelector(`#panel-tabs button[data-view="${v}"]`); if (b) b.click(); }
 async function newChat(projectId) {
   await api.chat.reset();
-  curConvId = null; pendingProject = projectId || null; activeProject = projectId || null;
+  curConvId = null; pendingProject = projectId || null; activeProject = projectId || null; activeWorkKey = null;
   setChatGrade((cfg && cfg.infoGrade) || 'I');
   attachments = []; renderTray();
   box.innerHTML = welcomeHTML; $('#input').value = '';
@@ -1099,7 +1101,7 @@ async function openConv(id) {
   if ($('#send').disabled) return;   // 답을 기다리는 중에는 옮기지 않음
   const c = await api.sidebar.openConv(id);
   if (!c) { refreshSidebar(); return; }
-  curConvId = c.id; activeProject = c.projectId || null; pendingProject = null;
+  curConvId = c.id; activeProject = c.projectId || null; pendingProject = null; activeWorkKey = null;
   showPanelView('chat'); setMode('ask');
   box.innerHTML = '';
   for (const t of c.turns) {
@@ -1110,13 +1112,29 @@ async function openConv(id) {
   setChatGrade(c.gradeMax || 'I');
   attachments = []; renderTray(); scrollDown(); renderSidebar();
 }
+// 끝난 작업·개발을 열면 질문(지시)과 진행 내용·결과를 대화처럼 처음부터 보여 준다
 async function openWork(key) {
   const w = sbData.works.find(x => x.key === key); if (!w) return;
   if (w.running) { showPanelView('chat'); const card = cards.get(w.id); if (card && card.el) card.el.scrollIntoView({ block: 'center' }); return; }
-  showPanelView('history');
-  await renderHistory();
-  const el = [...document.querySelectorAll('#history-list .hist')].find(x => x.dataset.at === w.at);
-  if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('hl'); setTimeout(() => el.classList.remove('hl'), 2500); }
+  if ($('#send').disabled) return;
+  const h = await api.sidebar.getWork(w.at);
+  if (!h) { refreshSidebar(); return; }
+  await api.chat.reset();
+  curConvId = null; pendingProject = null; activeProject = h.projectId || null; activeWorkKey = key;
+  showPanelView('chat'); setMode(h.engine === 'dev' ? 'dev' : 'act');
+  box.innerHTML = ''; attachments = []; renderTray();
+  const isDev = h.engine === 'dev';
+  addUser(h.goal, (isDev ? '🛠 개발(Dev)' : '🤖 작업(Work)') + (h.level ? ` · L${h.level}` : '') + ` · 🔒${h.infoGrade || '?'} · ${new Date(h.at).toLocaleString('ko-KR')}`, { kind: 'act', attachments: (h.atts || []).map(n => ({ kind: 'text', name: n, text: '', lost: true })) });
+  const id = 'h' + h.at, lg = h.log || { created: {}, steps: [] };
+  const c0 = lg.created || {};
+  onAgentEvent({ taskId: id, type: 'created', goal: h.goal, title: h.title, dev: isDev, devInfo: c0.devInfo });
+  const c = cards.get(id);
+  if (c) { ['shot', 'show', 'stop'].forEach(k => { const b = c.el.querySelector(`[data-act=${k}]`); if (b) b.remove(); }); if (!isDev) c.el.querySelector('.cost').textContent = h.engine === 'claude-code' ? '구독' : (h.costKrw != null ? h.costKrw.toLocaleString() + '원' : ''); }
+  if (lg.steps.length) for (const st of lg.steps) addStep(c, st.t === 'bad' || st.t === 'error' || st.t === 'blocked' ? 'bad' : st.t === 'say' ? 'say' : st.t === 'info' || st.t === 'engine' || st.t === 'start' ? 'info' : '', ({ say: '💭', error: '⚠', blocked: '⛔', bad: '✗', info: 'ℹ', engine: '🔗', start: '▶', escalate: '⬆', limit: '⏳', resume: '▶', action: st.who === 'jev' ? '⚡' : '✓' })[st.t] || '•', st.text);
+  else if (h.steps && h.steps.length) for (const t of h.steps) addStep(c, '', '✓', t);   // 예전 기록(진행 기록이 없던 버전)
+  onAgentEvent({ ...h, taskId: id, type: 'done', dev: isDev, summary: h.summary || '(결과 기록 없음)' });
+  if (c) c.el.querySelector('.badge').textContent = h.success ? '완료' : '중단';
+  scrollDown(); renderSidebar();
 }
 async function commitEdit(val) {
   const e = sbEdit; sbEdit = null;

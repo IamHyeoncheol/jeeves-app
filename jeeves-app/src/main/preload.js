@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('jeeves', {
     renameProject: (id, name) => ipcRenderer.invoke('project:rename', { id, name }),
     deleteProject: id => ipcRenderer.invoke('project:delete', id),
     setWorkProject: (at, projectId) => ipcRenderer.invoke('work:set-project', { at, projectId }),
+    getWork: at => ipcRenderer.invoke('work:get', at),
     deleteWork: at => ipcRenderer.invoke('work:delete', at)
   },
   agent: {

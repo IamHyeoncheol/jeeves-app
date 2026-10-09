@@ -39,7 +39,19 @@ app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
+// 작업·개발 진행 내용을 기록해 두었다가, 나중에 왼쪽 목록에서 열면 처음부터 다시 보여 준다(클로드·챗GPT 대화처럼)
+const evLogs = new Map();
+const LOG_TYPES = new Set(['engine', 'say', 'info', 'action', 'blocked', 'error', 'escalate', 'limit', 'resume', 'start']);
+function recordEvent(ev) {
+  if (!ev || typeof ev.taskId !== 'number') return;
+  if (ev.type === 'created') { evLogs.set(ev.taskId, { created: { title: ev.title, dev: !!ev.dev, devInfo: ev.devInfo }, steps: [] }); return; }
+  const lg = evLogs.get(ev.taskId); if (!lg || !LOG_TYPES.has(ev.type) || lg.steps.length >= 120) return;
+  const text = ev.type === 'action' ? `${ev.desc || ''}${ev.ok === false ? ' — ' + (ev.message || '') : ''}` : ev.type === 'blocked' ? `${ev.desc || ''} — ${ev.why || ''}` : ev.type === 'start' ? (ev.dev ? `${ev.attempt}번째 엔진: ${ev.engineLabel}` : '') : (ev.text || ev.message || (ev.type === 'escalate' ? ev.reason : '') || '');
+  if (!text) return;
+  lg.steps.push({ t: ev.type === 'action' && ev.ok === false ? 'bad' : ev.type, who: ev.who, text: String(text).slice(0, 300) });
+}
 function send(channel, payload) {
+  if (channel === 'agent:event') recordEvent(payload);
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
@@ -48,6 +60,7 @@ function loadTaskHistory() {
 }
 function saveTaskHistory(entry) {
   const lw = liveWorks.get(entry.id); if (lw && lw.projectId) entry.projectId = lw.projectId;   // 시작할 때 고른 프로젝트 유지
+  const lg = evLogs.get(entry.id); if (lg) { entry.log = lg; evLogs.delete(entry.id); }   // 진행 기록(다시 열어 볼 수 있게)
   const list = [entry, ...loadTaskHistory()].slice(0, 100);
   try { fs.writeFileSync(historyFile, JSON.stringify(list, null, 2), 'utf8'); } catch (_) {}
   liveWorks.delete(entry.id);
@@ -153,6 +166,7 @@ ipcMain.handle('config:import-keys', async () => {
   return { ok: true, found: ids.map(id => c.providers[id].label), path: r.filePaths[0] };
 });
 ipcMain.handle('history:get', () => loadTaskHistory());
+ipcMain.handle('work:get', (_, at) => loadTaskHistory().find(h => h.at === at) || null);
 
 // ── 대화(질문·답변) ───────────────────────────────────
 // 첨부(파일·사진): 형식·크기를 다시 검사해 받는다(화면 쪽 검사에 의존하지 않음). 대화·작업 공통
@@ -604,7 +618,7 @@ ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, en
       if (ev.type === 'done') {
         devRuns.delete(id);
         if (attDir) { try { fs.rmSync(attDir, { recursive: true, force: true }); } catch (_) {} }
-        saveTaskHistory({ id, title, goal, atts: attNames, infoGrade: grade, at: new Date().toISOString(), success: !!ev.success, summary: ev.summary || '', engine: 'dev', devEngine: ev.engineLabel, folder: p.folder, level: ev.level, chain: ev.chain, estUsd: ev.estUsd });
+        saveTaskHistory({ id, title, goal, atts: attNames, infoGrade: grade, at: new Date().toISOString(), success: !!ev.success, summary: ev.summary || '', engine: 'dev', devEngine: ev.engineLabel, folder: p.folder, level: ev.level, chain: ev.chain, estUsd: ev.estUsd, changes: ev.changes ? { added: ev.changes.added.slice(0, 30), modified: ev.changes.modified.slice(0, 30), removed: ev.changes.removed.slice(0, 30), truncated: ev.changes.truncated } : null, denied: ev.denied });
       }
     } });
   devRuns.set(id, { stop: () => ctl.stop(), folder: p.folder });
