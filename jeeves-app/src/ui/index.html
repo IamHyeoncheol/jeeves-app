@@ -33,6 +33,10 @@
         <div class="sb-sec sec-work"><div class="sb-h"><span class="sb-tt"><svg class="ico" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/></svg>작업 (Work)</span></div><div id="sb-works"></div></div>
         <div class="sb-sec sec-dev"><div class="sb-h"><span class="sb-tt"><svg class="ico" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>개발 (Dev)</span></div><div id="sb-devs"></div></div>
       </div>
+      <div id="sb-foot">
+        <button type="button" id="sb-custom" title="호칭·소개·답변 지침을 적어 두면 대화마다 자동으로 반영됩니다"><svg class="ico" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>맞춤설정</button>
+        <button type="button" id="sb-skills" title="Claude 스킬 파일(SKILL.md)을 가져와 /이름 으로 실행합니다"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5z"/></svg>스킬</button>
+      </div>
     </aside>
     <section id="web-area"><div id="web-placeholder">페이지를 불러오는 중…</div></section>
     <div id="splitter" role="separator" aria-orientation="vertical" tabindex="0" title="끌어서 크기 조절 · 두 번 클릭하면 기본 크기 · ←/→ 키로도 조절"></div>
@@ -229,6 +233,33 @@
     </div>
   </div>
 
+  <div id="custom-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="sheet narrow">
+      <div class="sheet-head"><h2>맞춤설정</h2><button class="icon" id="custom-close">✕</button></div>
+      <div class="sheet-body">
+        <p class="muted">여기에 적은 내용은 💬 대화 때마다 AI에게 자동으로 전달됩니다. 비밀번호·키·고객 개인정보는 적지 마세요. 💡 아이디어 모드에는 전달하지 않습니다.</p>
+        <label class="cu-row"><input type="checkbox" id="cu-enabled"> 맞춤설정 사용</label>
+        <label class="cu-f">부르는 이름 <small class="muted">(예: 최이사님)</small><input id="cu-nick" maxlength="40" placeholder="AI가 나를 부를 이름"></label>
+        <label class="cu-f">나에 대해 알려 둘 것 <small class="muted">(하는 일·배경, 1000자까지)</small><textarea id="cu-about" rows="4" maxlength="1000" placeholder="예) 사업 기획과 제안서 작성이 주 업무입니다. 비개발자입니다."></textarea></label>
+        <label class="cu-f">답변 지침 <small class="muted">(말투·형식·규칙, 3000자까지)</small><textarea id="cu-inst" rows="7" maxlength="3000" placeholder="예) 항상 한국어 존댓말로, 결론을 먼저 쓰고 쉬운 말로 설명해 주세요."></textarea></label>
+        <label class="cu-f">이 맞춤설정의 정보 등급
+          <select id="cu-grade"><option value="P">P 공개 — 어떤 AI에도 전달(무료 AI 포함)</option><option value="I">I 내부 — 대화 등급이 I 이상일 때만 (권장)</option><option value="C">C 기밀 — 대화 등급이 C 이상일 때만</option></select>
+          <small class="muted">대화 등급이 이 등급보다 낮으면 맞춤설정을 붙이지 않습니다(무료·외국계 AI에 내 정보가 가지 않게 하는 안전장치).</small></label>
+      </div>
+      <div class="sheet-foot"><span id="cu-msg" class="muted"></span><span class="foot-btns"><button class="primary" id="cu-save">저장</button></span></div>
+    </div>
+  </div>
+  <div id="skills-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="sheet narrow">
+      <div class="sheet-head"><h2>스킬</h2><button class="icon" id="skills-close">✕</button></div>
+      <div class="sheet-body">
+        <p class="muted">Claude 스킬 파일(SKILL.md)을 그대로 가져와, 💬 대화 입력창에 <b>/스킬이름 할 일</b>을 쓰면 그 지침으로 답합니다. 정보 등급은 지금 대화 등급을 따릅니다. (스킬 폴더 안의 참고 파일·스크립트는 아직 읽지 않고 SKILL.md 본문만 씁니다.)</p>
+        <div class="cu-btns"><button type="button" class="ghost" id="sk-import-file">＋ SKILL.md 파일 가져오기</button><button type="button" class="ghost" id="sk-import-dir">＋ 스킬 폴더 가져오기</button></div>
+        <div id="sk-msg" class="muted small"></div>
+        <div id="sk-list"></div>
+      </div>
+    </div>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>

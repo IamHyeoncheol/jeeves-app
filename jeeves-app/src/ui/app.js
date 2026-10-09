@@ -903,6 +903,41 @@ function renderRoles() {
     res.textContent = r.ok ? `✅ 연결됨 — ${r.model} (응답: ${r.text})` : `❌ ${r.error}` + (/크레딧|credit/i.test(r.error || '') ? ' → 위 공급자 칸의 "추천에서 제외"를 체크하면 추천이 다른 공급자로 바뀝니다.' : '');
   });
 }
+// ── 맞춤설정·스킬 창 ──
+function openModal(id) { settingsOpen = true; api.layout.hideWeb(true); $(id).classList.remove('hidden'); }
+function closeModal(id) { $(id).classList.add('hidden'); if (!$('#settings') || $('#settings').classList.contains('hidden')) { settingsOpen = false; api.layout.hideWeb(layout === 'chat'); } }
+$('#sb-custom').onclick = async () => {
+  cfg = await api.config.get(); const c = cfg.custom || {};
+  $('#cu-enabled').checked = c.enabled !== false; $('#cu-nick').value = c.nickname || ''; $('#cu-about').value = c.about || ''; $('#cu-inst').value = c.instructions || ''; $('#cu-grade').value = c.grade || 'I';
+  $('#cu-msg').textContent = ''; openModal('#custom-modal');
+};
+$('#custom-close').onclick = () => closeModal('#custom-modal');
+$('#cu-save').onclick = async () => {
+  cfg = await api.config.update({ custom: { enabled: $('#cu-enabled').checked, nickname: $('#cu-nick').value, about: $('#cu-about').value, instructions: $('#cu-inst').value, grade: $('#cu-grade').value } });
+  $('#cu-msg').textContent = '저장했습니다. 다음 대화부터 반영됩니다.';
+};
+async function renderSkills() {
+  const list = await api.skills.list();
+  $('#sk-list').innerHTML = list.length ? list.map(s => `<div class="sk-item ${s.enabled ? '' : 'off'}" data-sk="${esc(s.name)}"><div class="nm">/${esc(s.name)}</div><div class="ds">${esc(s.description || '(설명 없음)')} · 본문 ${s.size.toLocaleString()}자</div><div class="ac"><button class="ghost small" data-act="use" title="입력창에 넣기">사용</button><button class="ghost small" data-act="toggle">${s.enabled ? '끄기' : '켜기'}</button><button class="ghost small" data-act="del">삭제</button></div></div>`).join('') : '<div class="sb-empty">가져온 스킬이 없습니다. 위 단추로 SKILL.md 를 가져오세요.</div>';
+}
+$('#sb-skills').onclick = async () => { $('#sk-msg').textContent = ''; await renderSkills(); openModal('#skills-modal'); };
+$('#skills-close').onclick = () => closeModal('#skills-modal');
+for (const id of ['#custom-modal', '#skills-modal']) $(id).addEventListener('click', e => { if (e.target.id === id.slice(1)) closeModal(id); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') for (const id of ['#custom-modal', '#skills-modal']) if (!$(id).classList.contains('hidden')) closeModal(id); });
+for (const [id, kind] of [['#sk-import-file', 'file'], ['#sk-import-dir', 'dir']]) $(id).onclick = async () => {
+  const r = await api.skills.import(kind);
+  if (r.canceled) return;
+  $('#sk-msg').textContent = (r.added.length ? `가져옴: ${r.added.map(n => '/' + n).join(', ')}. ` : '') + (r.errors.length ? '문제: ' + r.errors.join(' / ') : '');
+  await renderSkills();
+};
+$('#sk-list').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-act]'); if (!b) return;
+  const name = b.closest('.sk-item').dataset.sk;
+  if (b.dataset.act === 'use') { closeModal('#skills-modal'); setMode('ask'); $('#input').value = `/${name} `; $('#input').focus(); return; }
+  if (b.dataset.act === 'toggle') await api.skills.enable(name, b.closest('.sk-item').classList.contains('off'));
+  if (b.dataset.act === 'del') await api.skills.remove(name);
+  await renderSkills();
+});
 async function openSettings(msg) {
   cfg = await api.config.get();
   settingsOpen = true;
