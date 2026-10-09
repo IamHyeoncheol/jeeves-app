@@ -6,7 +6,11 @@ const TABLE = [
   { match: /claude-opus-5/,   in: 4,    out: 20,   cacheWrite: 5,    cacheRead: 0.20 },
   { match: /claude-sonnet-5/, in: 2,    out: 10,   cacheWrite: 2.5,  cacheRead: 0.20 },
   { match: /claude-haiku-4-5/, in: 1,   out: 5,    cacheWrite: 1.25, cacheRead: 0.10 },
-  // OpenAI
+  // OpenAI (2026-10-09 공식 가격·모델 페이지: gpt-6 계열. 캐시 단가는 미확인이라 입력 단가로 보수 계산)
+  { match: /gpt-6-astra/i,    in: 10,   out: 50 },
+  { match: /gpt-6\.1-sol/i,   in: 2,    out: 10 },
+  { match: /gpt-6-luna/i,     in: 0.10, out: 0.50 },
+  // (이전 이름 — 현재 모델 페이지에서는 확인되지 않음)
   { match: /gpt-5\.6-sol/i,   in: 5,    out: 30,   cacheRead: 0.50 },
   { match: /gpt-5\.6-terra/i, in: 2,    out: 12,   cacheRead: 0.20 },
   { match: /gpt-5\.6-luna/i,  in: 0.20, out: 1.20, cacheRead: 0.02 },

@@ -558,6 +558,13 @@ async function checkClaude(show) {
   $('#cc-status').textContent = '찾는 중…';
   const r = await api.cc.check($('#cc-path').value.trim());
   $('#cc-status').textContent = r.ok ? `✅ 찾음 — ${r.path}${r.version ? ' (' + r.version + ')' : ''}` : '❌ 설치되지 않음 — 아래 설치 방법 참고';
+  // 추천 엔진: 구독(Claude Code)이 설치돼 있으면 구독을 권한다 (규칙은 src/models/recommend.js 와 같음)
+  const want = r.ok ? 'claude-code' : 'api';
+  const same = $('#engine-type').value === want;
+  $('#engine-rec').textContent = (r.ok ? '구독: Claude Code — 구독 한도 안에서는 추가 비용이 없고, 어려운 작업을 맡기기에 적합함' : 'API 키 방식 — Claude Code가 설치돼 있지 않음') + (same ? ' (현재 설정과 같음)' : '');
+  const ap = $('#engine-apply');
+  ap.classList.toggle('hidden', same);
+  ap.onclick = () => { $('#engine-type').value = want; ap.classList.add('hidden'); $('#engine-rec').textContent += ' — 적용됨(저장을 눌러 주세요)'; };
 }
 $('#cc-check').onclick = () => checkClaude(true);
 $('#mcp-regen').onclick = async () => {

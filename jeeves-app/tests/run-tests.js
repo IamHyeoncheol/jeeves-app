@@ -4,7 +4,7 @@ const { ModelRouter } = require('../src/models/router');
 const { toOpenAIMessages } = require('../src/models/providers');
 const { DEFAULTS, ConfigStore, parseKeyFile } = require('../src/main/config');
 const { costUsd } = require('../src/models/pricing');
-const { recommendFor, recommendAll } = require('../src/models/recommend');
+const { recommendFor, recommendAll, recommendEngine } = require('../src/models/recommend');
 const fs = require('fs'), os = require('os'), path = require('path');
 const { formatObservation, TOOLS } = require('../src/agent/agent');
 
@@ -285,9 +285,40 @@ function fakeFetch(handler) {
     assert.ok(r.reason.includes('대신함'));
   });
 
-  await t('추천: Gemini를 유료로 바꾸면 무료 우선이 사라져 Anthropic(목록 앞쪽)이 선택됨', () => {
+  await t('추천: Gemini를 유료로 바꾸면 무료 우선이 사라지고 단가가 싼 쪽(Gemini 3.8 Flash $0.75/$3.75 < Sonnet $2/$10)이 선택됨', () => {
     const c = withKeys({ anthropic: 'k1', gemini: 'k2' }, { gemini: 'paid' });
-    assert.strictEqual(recommendFor(c, 'chat').provider, 'anthropic');
+    assert.strictEqual(recommendFor(c, 'chat').provider, 'gemini');
+    assert.ok(recommendFor(c, 'chat').reason.includes('가장 저렴'));
+  });
+
+  await t('추천: OpenAI 키만 있으면 고성능=gpt-6-astra, 표준=gpt-6.1-sol, 경량=gpt-6-luna', () => {
+    const c = withKeys({ openai: 'k' });
+    assert.strictEqual(recommendFor(c, 'agentStrong').model, 'gpt-6-astra');
+    assert.strictEqual(recommendFor(c, 'chat').model, 'gpt-6.1-sol');
+    assert.strictEqual(recommendFor(c, 'summarize').model, 'gpt-6-luna');
+    assert.strictEqual(recommendFor(c, 'decide'), null);
+  });
+
+  await t('추천: 같은 유료 등급이면 단가가 싼 공급자 선택(고성능은 Opus 5.5가 Astra보다 저렴, 경량은 Luna가 Haiku 4.5보다 저렴)', () => {
+    const c = withKeys({ anthropic: 'k1', openai: 'k2' });
+    assert.strictEqual(recommendFor(c, 'agentStrong').provider, 'anthropic');
+    assert.strictEqual(recommendFor(c, 'summarize').provider, 'openai');
+  });
+
+  await t('추천: 제외(off)한 Anthropic 대신 OpenAI가 고성능 등급을 채움', () => {
+    const c = withKeys({ anthropic: 'k1', openai: 'k2' });
+    c.providers.anthropic.off = true;
+    assert.strictEqual(recommendFor(c, 'agentStrong').model, 'gpt-6-astra');
+  });
+
+  await t('엔진 추천: Claude Code 설치 시 구독, 아니면 API', () => {
+    assert.strictEqual(recommendEngine(true).type, 'claude-code');
+    assert.strictEqual(recommendEngine(false).type, 'api');
+  });
+
+  await t('단가표: gpt-6 계열 비용 계산', () => {
+    assert.ok(Math.abs(costUsd('gpt-6-astra', { input: 1e6, output: 1e6 }) - 60) < 1e-9);
+    assert.ok(Math.abs(costUsd('gpt-6-luna', { input: 1e6, output: 1e6 }) - 0.6) < 1e-9);
   });
 
   await t('추천: 고성능 등급 공급자 키가 없으면 표준 등급으로 대신하고 이유를 알림', () => {

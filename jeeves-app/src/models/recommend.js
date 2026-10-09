@@ -4,7 +4,9 @@
 const CATALOG = {
   anthropic: { strong: 'claude-opus-5-5', standard: 'claude-sonnet-5-5', light: 'claude-haiku-4-5-20251001' },
   gemini:    { standard: 'gemini-3.8-flash', light: 'gemini-3.5-flash-lite' },   // Google 공식 가격 페이지(2026-10-09): 무료 등급 있음
-  typesafe:  { decide: 'jev-latest' }
+  typesafe:  { decide: 'jev-latest' },
+  // OpenAI 공식 모델·가격 페이지 2종에서 확인(2026-10-09): astra=최고성능, sol=균형, luna=최저가
+  openai:    { strong: 'gpt-6-astra', standard: 'gpt-6.1-sol', light: 'gpt-6-luna' }
 };
 
 // 부문이 필요로 하는 등급. 앞 등급부터 찾고, 그 등급을 가진 공급자(키 있음)가 없으면 다음 등급으로 내려간다.
@@ -18,6 +20,8 @@ const NEED = {
 const GRADE_LABEL = { strong: '고성능', standard: '표준', light: '경량', decide: '판단 전용' };
 const ORDER = Object.keys(CATALOG);
 
+const { priceOf } = require('./pricing');
+const cheapness = model => { const pr = priceOf(model); return pr ? pr.in + pr.out : Infinity; };   // 입력+출력 단가 합(작을수록 저렴)
 const isLocal = p => /127\.0\.0\.1|localhost/.test((p && p.baseUrl) || '');
 const usable = p => !!p && !p.disabled && !p.off && !!p.apiKey && p.apiKey !== 'ollama';
 
@@ -33,8 +37,8 @@ function recommendFor(cfg, role) {
       if (model && usable(p)) cands.push({ provider: id, model, tier: p.tier === 'free' ? 'free' : 'paid', local: isLocal(p) });
     }
     if (!cands.length) continue;
-    // 무료 먼저, 같은 유형이면 목록 순서
-    cands.sort((a, b) => (a.tier === b.tier ? 0 : a.tier === 'free' ? -1 : 1) || ORDER.indexOf(a.provider) - ORDER.indexOf(b.provider));
+    // 무료 먼저, 같은 유형이면 단가가 싼 것, 단가가 같으면 목록 순서
+    cands.sort((a, b) => (a.tier === b.tier ? 0 : a.tier === 'free' ? -1 : 1) || cheapness(a.model) - cheapness(b.model) || ORDER.indexOf(a.provider) - ORDER.indexOf(b.provider));
     const c = cands[0];
     const parts = [`${c.tier === 'free' ? '무료' : '유료'} · ${GRADE_LABEL[grade]} 등급`];
     if (i > 0) parts.push(`${GRADE_LABEL[needs[0]]} 등급을 쓸 수 있는 공급자 키가 없어 ${GRADE_LABEL[grade]} 등급으로 대신함`);
@@ -50,4 +54,12 @@ function recommendAll(cfg) {
   return out;
 }
 
-module.exports = { CATALOG, NEED, recommendFor, recommendAll };
+// 작업 엔진 추천: 구독(Claude Code)은 한도 안에서 추가 비용이 없으므로, 설치돼 있으면 구독을 먼저 권한다.
+// (구독은 API 키가 아니라 정품 Claude Code 프로그램으로만 쓸 수 있어 부문별 배정과는 따로 정한다 — 기준서 3장)
+function recommendEngine(claudeFound) {
+  return claudeFound
+    ? { type: 'claude-code', reason: '구독 한도 안에서는 추가 비용이 없고, 막히는 어려운 작업을 맡기기에 적합함' }
+    : { type: 'api', reason: 'Claude Code가 설치돼 있지 않아 API 키 방식으로 동작함' };
+}
+
+module.exports = { CATALOG, NEED, recommendFor, recommendAll, recommendEngine };

@@ -146,6 +146,7 @@
           <label class="row"><span>🤖 작업 엔진<br><small class="muted">구독: 내 PC의 정품 Claude Code 실행 (한도에 걸리면 풀릴 때 자동 재개)</small></span>
             <select id="engine-type"><option value="api">API 키 방식 (Sonnet + Jev, 사용량만큼 과금)</option><option value="claude-code">구독: Claude Code (Pro·Max)</option></select>
           </label>
+          <div class="row"><span>추천 엔진<br><small class="muted" id="engine-rec">Claude Code 설치 확인 후 표시됩니다.</small></span><button type="button" class="ghost hidden" id="engine-apply">추천대로 적용</button></div>
           <div class="row"><span>Claude Code 설치 확인<br><small class="muted" id="cc-status">확인 전</small></span><span><input id="cc-path" placeholder="자동으로 찾음 (직접 지정 시 claude.exe 경로)"> <button class="ghost" id="cc-check">확인</button></span></div>
           <label class="row"><span>Claude Code 모델<br><small class="muted">sonnet 추천(한도 절약), opus 는 한도를 빨리 씀</small></span>
             <select id="cc-model"><option value="sonnet">sonnet</option><option value="opus">opus</option><option value="haiku">haiku</option><option value="">Claude Code 기본값</option></select>
