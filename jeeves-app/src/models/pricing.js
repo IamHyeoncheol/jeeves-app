@@ -14,6 +14,12 @@ const TABLE = [
   { match: /gpt-5\.6-sol/i,   in: 5,    out: 30,   cacheRead: 0.50 },
   { match: /gpt-5\.6-terra/i, in: 2,    out: 12,   cacheRead: 0.20 },
   { match: /gpt-5\.6-luna/i,  in: 0.20, out: 1.20, cacheRead: 0.02 },
+  // xAI Grok (2026-10-09 공식 모델 페이지)
+  { match: /^grok-4/i,         in: 2,    out: 6 },
+  // Zhipu GLM (2026-10-09 공식 가격 페이지; -Flash 일부는 무료)
+  { match: /glm-(4\.7|4\.5|4\.6v)-flash$/i, in: 0, out: 0 },
+  { match: /glm-5\.3-flash$/i, in: 0.15, out: 0.50 },
+  { match: /glm-5\.3$/i,      in: 1.4,  out: 4.4 },
   // Google Gemini (프롬프트 20만 토큰 이하 기준)
   { match: /gemini-3\.1-pro/,        in: 2,    out: 12 },
   { match: /gemini-3\.[678]-flash(?!-lite)/, in: 0.75, out: 3.75 },

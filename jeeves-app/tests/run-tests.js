@@ -311,6 +311,20 @@ function fakeFetch(handler) {
     assert.strictEqual(recommendFor(c, 'agentStrong').model, 'gpt-6-astra');
   });
 
+  await t('공급자: xAI Grok·Zhipu GLM 기본 등록(주소 확인값), Grok만 추천 후보, GLM은 직접 선택 전용', () => {
+    assert.strictEqual(DEFAULTS.providers.xai.baseUrl, 'https://api.x.ai/v1');
+    assert.strictEqual(DEFAULTS.providers.zai.baseUrl, 'https://api.z.ai/api/paas/v4');
+    const c = withKeys({ xai: 'k', zai: 'k' });
+    assert.strictEqual(recommendFor(c, 'chat').provider, 'xai');   // GLM은 카탈로그에 없어 자동 추천 안 됨
+    assert.strictEqual(recommendFor(withKeys({ zai: 'k' }), 'chat'), null);
+  });
+
+  await t('단가표: grok-4.7·glm 비용 계산, GLM 무료 모델은 0원', () => {
+    assert.ok(Math.abs(costUsd('grok-4.7', { input: 1e6, output: 1e6 }) - 8) < 1e-9);
+    assert.ok(Math.abs(costUsd('glm-5.3', { input: 1e6, output: 1e6 }) - 5.8) < 1e-9);
+    assert.strictEqual(costUsd('glm-4.7-flash', { input: 1e6, output: 1e6 }), 0);
+  });
+
   await t('엔진 추천: Claude Code 설치 시 구독, 아니면 API', () => {
     assert.strictEqual(recommendEngine(true).type, 'claude-code');
     assert.strictEqual(recommendEngine(false).type, 'api');

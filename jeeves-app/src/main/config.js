@@ -28,6 +28,10 @@ const DEFAULTS = {
     typesafe: { type: 'jev', label: 'TypeSafe Jev (판단 전용)', baseUrl: 'https://api.typesafe.ai', apiKey: '', tier: 'paid' },
     openrouter: { type: 'openai', label: 'OpenRouter (여러 모델)', baseUrl: 'https://openrouter.ai/api/v1', apiKey: '', tier: 'paid' },
     openai: { type: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', apiKey: '', tier: 'paid' },
+    // xAI Grok: 공식 문서에서 주소·모델명 확인(2026-10-09). 채팅 호환 경로는 "Legacy"로 표기돼 있어 연결 테스트로 확인 필요
+    xai: { type: 'openai', label: 'xAI Grok', baseUrl: 'https://api.x.ai/v1', apiKey: '', tier: 'paid' },
+    // Zhipu GLM(Z.ai, 중국): 데이터 처리 정책 미확인 → 자동 추천에서는 제외하고 "직접" 선택으로만 쓴다
+    zai: { type: 'openai', label: 'Zhipu GLM (Z.ai)', baseUrl: 'https://api.z.ai/api/paas/v4', apiKey: '', tier: 'paid' },
     ollama: { type: 'openai', label: 'Ollama (내 PC 로컬 모델)', baseUrl: 'http://127.0.0.1:11434/v1', apiKey: 'ollama', tier: 'free' }
   },
   removedProviders: [],   // 사용자가 지운 기본 공급자 id (다시 살아나지 않게 기록)

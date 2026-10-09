@@ -6,6 +6,7 @@ const CATALOG = {
   gemini:    { standard: 'gemini-3.8-flash', light: 'gemini-3.5-flash-lite' },   // Google 공식 가격 페이지(2026-10-09): 무료 등급 있음
   typesafe:  { decide: 'jev-latest' },
   // OpenAI 공식 모델·가격 페이지 2종에서 확인(2026-10-09): astra=최고성능, sol=균형, luna=최저가
+  xai:       { standard: 'grok-4.7' },   // xAI 공식 문서(2026-10-09): $2/$6, 500k 컨텍스트. 지능 지수 순위 23위
   openai:    { strong: 'gpt-6-astra', standard: 'gpt-6.1-sol', light: 'gpt-6-luna' }
 };
 
