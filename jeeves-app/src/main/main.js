@@ -1,5 +1,5 @@
 // Jeeves(가칭) — 메인 프로세스: 창, 탭, AI 대화, 에이전트 작업을 연결한다.
-const { app, BrowserWindow, ipcMain, session, safeStorage, net, Menu, dialog, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, session, safeStorage, net, Menu, dialog, clipboard, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { ConfigStore, parseKeyFile } = require('./config');
@@ -535,12 +535,19 @@ async function devPlan({ goal, infoGrade, folder, attachments, engineId }) {
 const pub = p => { const { _chain, _bins, _atts, ...r } = p; return r; };
 ipcMain.handle('dev:plan', async (_, a) => { try { return pub(await devPlan(a || {})); } catch (e) { return { ok: false, error: '계획을 만들지 못했습니다: ' + e.message }; } });
 ipcMain.handle('dev:pick-folder', async () => {
-  const r = await dialog.showOpenDialog(win, { title: '개발할 프로젝트 폴더 선택 (새 폴더도 가능)', properties: ['openDirectory', 'createDirectory'] });
+  const cur = config.get().dev.folder;
+  const r = await dialog.showOpenDialog(win, { title: '개발할 프로젝트 폴더 선택 (새 폴더도 가능)', defaultPath: cur && fs.existsSync(cur) ? cur : undefined, properties: ['openDirectory', 'createDirectory'] });
   if (r.canceled || !r.filePaths[0]) return { ok: false };
   const fc = checkFolder(r.filePaths[0], { userData: app.getPath('userData') });
   if (!fc.ok) return { ok: false, error: fc.error };
   config.update({ dev: { folder: fc.folder } });
   return { ok: true, folder: fc.folder };
+});
+ipcMain.handle('dev:open-folder', async () => {
+  const fc = checkFolder(config.get().dev.folder, { userData: app.getPath('userData') });
+  if (!fc.ok) return { error: fc.error };
+  const err = await shell.openPath(fc.folder);   // 비어 있으면 성공, 문자열이면 오류
+  return err ? { error: '폴더를 열지 못했습니다: ' + err } : { ok: true };
 });
 ipcMain.handle('dev:check', async () => {
   const all = config.get(), { bins, avail } = await devAvail(all);

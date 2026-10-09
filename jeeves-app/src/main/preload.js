@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('jeeves', {
     plan: a => ipcRenderer.invoke('dev:plan', a),
     start: a => ipcRenderer.invoke('dev:start', a),
     pickFolder: () => ipcRenderer.invoke('dev:pick-folder'),
+    openFolder: () => ipcRenderer.invoke('dev:open-folder'),
     check: () => ipcRenderer.invoke('dev:check')
   },
   usage: () => ipcRenderer.invoke('usage:get'),

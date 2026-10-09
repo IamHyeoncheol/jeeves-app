@@ -219,7 +219,15 @@ setMode('ask');
 // ── 메시지 ────────────────────────────────────────────
 const box = $('#messages');
 const welcomeHTML = box.innerHTML;   // 새 대화를 시작할 때 다시 보여 줄 첫 화면
-function scrollDown() { box.scrollTop = box.scrollHeight; }
+function scrollDown() { box.scrollTop = box.scrollHeight; updateToBottom(); }
+// 긴 답변은 맨 아래가 아니라 "답변의 처음"이 보이게 한다(읽기 시작점). 짧은 답변은 맨 아래로.
+function scrollToMsg(el) {
+  if (el.offsetHeight > box.clientHeight * 0.8) { box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - 10; updateToBottom(); }
+  else scrollDown();
+}
+function updateToBottom() { const b = $('#to-bottom'); if (b) b.classList.toggle('hidden', box.scrollHeight - box.scrollTop - box.clientHeight < 160); }
+box.addEventListener('scroll', updateToBottom);
+$('#to-bottom').onclick = () => { box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' }); };
 // 메시지 아래 작은 동작 단추 줄
 function actBar(buttons) {
   const bar = document.createElement('div');
@@ -247,7 +255,7 @@ function addAI(text, meta, chat) {
     d.dataset.chat = '1'; d._raw = text; d._meta = meta || '';
     d.appendChild(actBar([['copy', '복사', '답변 복사'], ['export', '내보내기', '파일로 저장'], ['share', '공유', '다른 앱으로 공유'], ['speak', '🔊 읽기', '소리내어 읽기'], ['good', '👍', '좋은 답변'], ['bad', '👎', '나쁜 답변'], ['retry', '재시도', '다시 답변 받기']]));
   }
-  box.appendChild(d); scrollDown();
+  box.appendChild(d); scrollToMsg(d);
   return d;
 }
 function toastIn(el, t) {
@@ -549,9 +557,15 @@ function syncDevFolder() {
   const b = $('#dev-folder'); if (!b) return;
   const f = (cfg && cfg.dev && cfg.dev.folder) || '';
   b.textContent = f ? '📁 ' + (f.split(/[\\/]/).filter(Boolean).pop() || f) : '📁 폴더 선택';
-  b.title = f ? f + ' (눌러서 바꾸기)' : '개발할 프로젝트 폴더 선택';
+  b.title = f ? f + ' (눌러서 탐색기로 열기)' : '개발할 프로젝트 폴더 선택';
+  const ch = $('#dev-folder-change'); if (ch) ch.classList.toggle('hidden', !f);
 }
-$('#dev-folder').onclick = () => pickDevFolder();
+$('#dev-folder').onclick = async () => {
+  if (!(cfg && cfg.dev && cfg.dev.folder)) return pickDevFolder();
+  const r = await api.dev.openFolder();   // 폴더를 탐색기로 연다(바꾸려면 옆의 '변경')
+  if (r && r.error) addErr(r.error);
+};
+$('#dev-folder-change').onclick = () => pickDevFolder();
 const COST_TXT = { free: '무료', subscription: '구독', api: 'API(과금)' };
 function askDevPlan(p) {
   return new Promise(resolve => {
