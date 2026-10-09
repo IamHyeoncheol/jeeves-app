@@ -157,6 +157,42 @@ class ModelRouter {
     throw lastErr;
   }
 
+  // 지정한 공급자·모델로 직접 한 번 호출한다(개발 모드 주니어 엔진용). 부문 배정과 무관하게 정보 등급·키·쉬는 중 여부는 그대로 검문한다.
+  // providerOrId: 설정의 공급자 id(문자열) 또는 인라인 공급자 객체({type,label,baseUrl,apiKey,tier}) — 로컬 AI 자동 탐지용
+  async callProvider(providerOrId, model, req) {
+    const cfg = this.getConfig();
+    const inline = typeof providerOrId === 'object' && providerOrId;
+    const p = inline ? { ...providerOrId } : cfg.providers[providerOrId];
+    if (!p) throw new ProviderError(`공급자(${providerOrId})를 찾을 수 없습니다.`);
+    const id = inline ? 'inline:' + p.label + ':' + p.baseUrl : providerOrId;
+    p.id = id;
+    const grade = GRADES.includes(req && req.infoGrade) ? req.infoGrade : (GRADES.includes(cfg.infoGrade) ? cfg.infoGrade : 'P');
+    if (p.disabled || p.off) { const e = new ProviderError(`'${p.label}' 은(는) 지금 쓸 수 없습니다.`); e.kind = 'none'; throw e; }
+    if (!gradeOk(p, grade)) { const e = new ProviderError(`정보 등급 ${grade}(${GRADE_INFO[grade].name})에는 '${p.label}'을(를) 쓸 수 없습니다.`); e.kind = 'none'; throw e; }
+    const local = /127\.0\.0\.1|localhost/.test(p.baseUrl || '');
+    if (!p.apiKey && !local) { const e = new ProviderError(`${p.label} API 키가 없습니다.`); e.kind = 'auth'; throw e; }
+    if (this.coolSet().has(id)) { const e = new ProviderError(`'${p.label}' 은(는) 지금 쉬는 중입니다.`); e.kind = 'resting'; e.providerId = id; throw e; }
+    const adapter = ADAPTERS[p.type];
+    if (!adapter) throw new ProviderError(`지원하지 않는 공급자 방식: ${p.type}`);
+    const full = { ...req }; delete full.freeOnly;
+    let lastErr;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await adapter(p, model, full, this.fetch);
+        res.costUsd = this.record('dev', model, res.usage || {}, p);
+        res.model = `${p.label} · ${model}`; res.modelId = model;
+        return res;
+      } catch (e) {
+        lastErr = e;
+        if (e.name === 'AbortError' || !e.retryable) { if (KIND_TXT[e.kind]) this.markCool(id, e); throw e; }
+        if (e.kind === 'limit' && attempt >= 1) break;
+        await new Promise(r => setTimeout(r, this.now === Date.now ? 1500 * (attempt + 1) : 0));
+      }
+    }
+    if (KIND_TXT[lastErr.kind]) this.markCool(id, lastErr);
+    throw lastErr;
+  }
+
   async testRole(role) {
     const { provider } = this.resolve(role);
     if (provider.type === 'jev') {

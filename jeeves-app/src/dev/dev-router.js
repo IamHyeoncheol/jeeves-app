@@ -47,7 +47,7 @@ function analyzeDifficulty(goal, opts = {}) {
 }
 
 // 엔진 목록 만들기. cfg = 설정의 dev 부분, avail = { claude:bool, codex:bool, <custom id>:bool }
-function buildEngines(cfg = {}, avail = {}) {
+function buildEngines(cfg = {}, avail = {}, extra = []) {
   const dev = cfg.dev || {};
   const out = [];
   const cc = dev.claude || {};
@@ -59,11 +59,12 @@ function buildEngines(cfg = {}, avail = {}) {
     }
   }
   const cx = dev.codex || {};
-  if (cx.enabled) out.push({ id: 'codex', kind: 'codex', label: 'Codex (ChatGPT 구독)', cost: 'subscription', maxLevel: clampLevel(cx.maxLevel, 3), minLevel: 1, maxGrade: cx.maxGrade || 'I', available: !!avail.codex, family: 'codex', args: cx.args, bin: cx.path });
+  if (cx.enabled === 'auto' ? avail.codex : cx.enabled) out.push({ id: 'codex', kind: 'codex', label: 'Codex (ChatGPT 구독)', cost: 'subscription', maxLevel: clampLevel(cx.maxLevel, 3), minLevel: 1, maxGrade: cx.maxGrade || 'I', available: !!avail.codex, family: 'codex', args: cx.args, bin: cx.path });
   for (const c of dev.custom || []) {
     if (!c || !c.enabled || !c.id || !c.bin) continue;
     out.push({ id: 'cli-' + c.id, kind: 'cli', label: c.label || c.id, cost: ['free', 'subscription', 'api'].includes(c.cost) ? c.cost : 'subscription', maxLevel: clampLevel(c.maxLevel, 2), minLevel: 1, maxGrade: c.local ? (c.maxGrade || 'S') : (['P', 'I', 'C'].includes(c.maxGrade) ? c.maxGrade : 'I'), local: !!c.local, available: avail['cli-' + c.id] !== undefined ? !!avail['cli-' + c.id] : true, family: 'cli', args: c.args, bin: c.bin });
   }
+  for (const e of extra || []) out.push(e);   // 주니어 엔진(지브스 직접 코딩 에이전트: 로컬 AI·무료 API) 등
   return out;
 }
 const clampLevel = (v, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(4, Math.max(1, Math.round(n))) : d; };
@@ -83,7 +84,7 @@ class DevRouter {
 
   // 계획: 난이도에 맞는 순서의 엔진 목록을 만든다.
   // opts: { grade, level, engines, prefer:[family...], exclude:Set }
-  plan({ grade, level, engines, prefer = [], exclude = new Set() }) {
+  plan({ grade, level, engines, prefer = [], exclude = new Set(), first = '' }) {
     const skipped = [];
     const ok = [];
     for (const e of engines) {
@@ -95,7 +96,7 @@ class DevRouter {
       ok.push(e);
     }
     const pref = f => { const i = prefer.indexOf(f); return i < 0 ? 99 : i; };
-    const sorter = (a, b) => (COST_RANK[a.cost] - COST_RANK[b.cost]) || (a.maxLevel - b.maxLevel) || (pref(a.family) - pref(b.family)) || ((this.runs.get(a.id) || 0) - (this.runs.get(b.id) || 0)) || a.id.localeCompare(b.id);
+    const sorter = (a, b) => (COST_RANK[a.cost] - COST_RANK[b.cost]) || ((a.family === first ? 0 : 1) - (b.family === first ? 0 : 1)) || (!!b.local - !!a.local) || (a.maxLevel - b.maxLevel) || (pref(a.family) - pref(b.family)) || ((this.runs.get(a.id) || 0) - (this.runs.get(b.id) || 0)) || a.id.localeCompare(b.id);
     const enough = ok.filter(e => e.maxLevel >= level && e.minLevel <= level).sort(sorter);
     // 난이도를 못 채우는 약한 엔진은 맨 끝에 "마지막 수단"으로만 둔다(경고 표시)
     const weak = ok.filter(e => e.maxLevel < level).sort((a, b) => b.maxLevel - a.maxLevel || sorter(a, b)).map(e => ({ ...e, weak: true }));

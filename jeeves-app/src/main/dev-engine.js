@@ -25,7 +25,7 @@ const RULES = `당신은 Jeeves(지브스)의 개발 모드 일꾼으로 실행�
 - 이미 일부 진행된 폴더일 수 있습니다. 먼저 현재 파일 상태를 확인하고 이어서 진행하세요.
 - 끝나면 한국어로, 결론 먼저(무엇을 만들었고 어떻게 실행하는지), 바꾼 파일, 확인한 것과 못 한 것(시험 결과)을 구분해 쉽게 보고하세요. 모르는 것은 지어내지 말고 "확인 필요"라고 쓰세요.`;
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '__pycache__', '.venv', 'venv', '.cache', 'jeeves-attach']);
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '__pycache__', '.venv', 'venv', '.cache', 'jeeves-attach', '.jeeves']);
 
 // 폴더 스냅샷(파일 이름·크기·수정시각) — 실행 전후를 비교해 "무엇이 바뀌었는지" 엔진과 상관없이 직접 보고한다.
 function snapshotDir(root, limit = 20000) {

@@ -576,6 +576,7 @@ function askDevPlan(p) {
       <div>난이도 <b>L${p.difficulty.level} ${esc(p.difficulty.label)}</b> <small class="muted">— ${esc(p.difficulty.reasons.join(', '))}</small></div>
       <div>📁 ${esc(p.folder)} <small class="muted">${p.empty ? '(비어 있음 — 새로 만들기)' : `(파일 ${p.fileCount}${p.fileCount >= 3000 ? '+' : ''}개 — 기존 프로젝트 수정)`}</small></div>
       <div>🔒 정보 등급 ${p.grade}</div>
+      ${p.team ? `<div class="why">👥 <b>팀 작업</b>: 시니어(${esc(p.team.seniors.join(', '))})가 계획·검수, 쉬운 조각은 주니어(${esc(p.team.juniors.join(', '))})가 구현합니다. 주니어가 못 하면 시니어가 이어받고, 끝나면 자동 검증(npm test)이 있습니다.</div>` : ''}
       <div style="margin-top:4px"><b>맡길 순서</b> <small class="muted">(한도·로그인 문제가 생기면 다음 엔진으로 자동 전환)</small><br>${chain}</div>
       ${p.skipped.length ? `<details><summary class="muted">제외된 엔진 ${p.skipped.length}개</summary><small class="muted">${p.skipped.map(x => esc(x.label) + ': ' + esc(x.why)).join('<br>')}</small></details>` : ''}
       <div class="why">이 폴더 안에서만 파일을 만들고 고칩니다. 삭제·인터넷 전송·시스템 변경 명령은 막혀 있고 .env 같은 비밀 파일은 읽지 못합니다. 단, 개발 AI가 프로그램을 실행할 수 있으므로 <b>중요한 폴더는 미리 백업</b>하세요.</div>
@@ -591,6 +592,7 @@ function devDoneStats(ev) {
   const c = ev.changes;
   const list = (a, n) => a.slice(0, n).map(esc).join(', ') + (a.length > n ? ` 외 ${a.length - n}개` : '');
   let h = `<div class="devstats">엔진: ${ch || '-'} · 난이도 L${ev.level || '?'}${ev.estUsd ? ` · 참고용 추정 $${ev.estUsd.toFixed(3)} (구독이라 실제 청구 아님)` : ''}`;
+  if (ev.teamTasks && ev.teamTasks.length) h += `<br>작업별: ${ev.teamTasks.map(t => `${t.id}.${esc(t.title)} ${t.ok ? '✓' : '✗'}(${esc((t.by || '').replace('주니어 · ', '주니어 '))})`).join(' · ')}`;
   if (c) h += `<br>폴더 변경: 새 파일 ${c.added.length}개${c.added.length ? ' (' + list(c.added, 6) + ')' : ''} · 수정 ${c.modified.length}개${c.modified.length ? ' (' + list(c.modified, 6) + ')' : ''} · 삭제 ${c.removed.length}개${c.removed.length ? ' (' + list(c.removed, 6) + ')' : ''}${c.truncated ? ' · 파일이 많아 일부만 비교' : ''}`;
   if (ev.denied && ev.denied.length) h += `<br>막힌 요청(허용 목록 밖): ${ev.denied.map(esc).join(' / ')}`;
   return h + '</div>';
@@ -897,6 +899,8 @@ function loadDevSettings() {
   $('#dev-codex').checked = !!cx.enabled; $('#dev-codex-path').value = cx.path || ''; $('#dev-codex-args').value = cx.args || '';
   $('#dev-codex-level').value = String(cx.maxLevel || 3); $('#dev-codex-grade').value = cx.maxGrade || 'I';
   $('#dev-prefer').value = (d.prefer || [])[0] === 'codex' ? 'codex' : 'claude';
+  $('#dev-prefermode').value = d.preferMode || 'auto';
+  const jr = d.junior || {}; $('#dev-junior').checked = jr.enabled !== false; $('#dev-team').checked = jr.team !== false;
   devCustom = JSON.parse(JSON.stringify(d.custom || []));
   renderDevCustom();
 }
@@ -919,7 +923,8 @@ function collectDevCustom() {
 function collectDevSettings() {
   const first = $('#dev-prefer').value === 'codex' ? ['codex', 'claude'] : ['claude', 'codex'];
   return { prefer: first, claudeMaxGrade: $('#dev-claude-grade').value, claude: { enabled: $('#dev-claude').checked },
-    codex: { enabled: $('#dev-codex').checked, path: $('#dev-codex-path').value.trim(), args: $('#dev-codex-args').value.trim(), maxLevel: Number($('#dev-codex-level').value), maxGrade: $('#dev-codex-grade').value },
+    preferMode: $('#dev-prefermode').value, junior: { enabled: $('#dev-junior').checked, team: $('#dev-team').checked },
+    codex: { enabled: $('#dev-codex').checked ? (((cfg.dev || {}).codex || {}).enabled === 'auto' ? 'auto' : true) : false, path: $('#dev-codex-path').value.trim(), args: $('#dev-codex-args').value.trim(), maxLevel: Number($('#dev-codex-level').value), maxGrade: $('#dev-codex-grade').value },
     custom: collectDevCustom() };
 }
 $('#dev-custom-add').onclick = () => { devCustom = collectDevCustom().concat([{ id: '', label: '', bin: '', args: '', maxLevel: 2, maxGrade: 'I', cost: 'subscription', local: false, enabled: true }]); renderDevCustom(); };
@@ -931,6 +936,7 @@ $('#dev-check').onclick = async () => {
   const parts = [r.claude.path ? `Claude Code ✅ ${r.claude.version || ''}` : 'Claude Code ❌ 못 찾음'];
   parts.push(r.codex.enabled ? (r.codex.path ? `Codex ✅ ${r.codex.version || ''}` : 'Codex ❌ 못 찾음(설치·경로 확인)') : 'Codex 꺼짐');
   for (const c of r.custom) parts.push(`${c.id} ${c.found ? '✅' : '❌'}`);
+  parts.push(r.juniors && r.juniors.length ? `주니어 ✅ ${r.juniors.map(j => j.label.replace('주니어 · ', '')).join(', ')}` : '주니어 ❌ 설치된 로컬 AI·무료 키를 못 찾음');
   $('#dev-status').textContent = parts.join(' · ');
 };
 $('#add-provider-btn').onclick = () => { $('#add-provider').classList.toggle('hidden'); $('#ap-msg').textContent = ''; };

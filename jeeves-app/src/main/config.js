@@ -59,9 +59,10 @@ const DEFAULTS = {
   mcp: { enabled: true, port: 47840, token: '', allowExternal: false },
   // 개발 모드: 지브스가 개발 AI(Claude Code·Codex·기타 명령줄 AI)를 고른 프로젝트 폴더 안에서만 실행. 난이도(L1~L4)에 따라 엔진을 고른다.
   dev: {
-    folder: '', prefer: ['claude', 'codex'], claudeMaxGrade: 'I',
+    folder: '', prefer: ['claude', 'codex'], preferMode: 'auto', claudeMaxGrade: 'I',
+    junior: { enabled: true, local: true, free: true, paid: false, maxLevel: 2, team: true },   // 주니어 엔진: 지브스가 직접 굴리는 코딩 에이전트(로컬 AI·무료 API 자동 탐지)
     claude: { enabled: true, models: { haiku: [1, 2], sonnet: [1, 3], opus: [1, 4] } },
-    codex: { enabled: false, path: '', args: 'exec --sandbox workspace-write --skip-git-repo-check -', maxLevel: 3, maxGrade: 'I' },
+    codex: { enabled: 'auto', path: '', args: 'exec --sandbox workspace-write --skip-git-repo-check -', maxLevel: 3, maxGrade: 'I' },
     custom: []   // 기타 개발 AI: { id, label, bin, args('{prompt}' 또는 표준입력, '{cwd}'), enabled, maxLevel(1~4), maxGrade(P|I|C|S는 local만), cost(free|subscription|api), local }
   }   // allowExternal: 외부 에이전트(Codex 등)가 지브스를 직접 부리는 길(기본 꺼짐: 지브스가 최상위여야 함)
 };
@@ -73,10 +74,17 @@ function sanitizeDev(d) {
   if (typeof d.folder === 'string') out.folder = d.folder.trim().slice(0, 500);
   if (Array.isArray(d.prefer)) out.prefer = d.prefer.filter(x => ['claude', 'codex', 'cli'].includes(x));
   if (['P', 'I', 'C'].includes(d.claudeMaxGrade)) out.claudeMaxGrade = d.claudeMaxGrade;
+  if (['auto', 'codex', 'claude'].includes(d.preferMode)) out.preferMode = d.preferMode;
+  if (d.junior) {
+    const j = {};
+    for (const k of ['enabled', 'local', 'free', 'paid', 'team']) if (typeof d.junior[k] === 'boolean') j[k] = d.junior[k];
+    if (lvl(d.junior.maxLevel)) j.maxLevel = Math.min(3, lvl(d.junior.maxLevel));
+    out.junior = j;
+  }
   if (d.claude && typeof d.claude.enabled === 'boolean') out.claude = { enabled: d.claude.enabled };   // 모델별 난이도 범위는 화면에서 바꾸지 않는다
   if (d.codex) {
     const c = {};
-    if (typeof d.codex.enabled === 'boolean') c.enabled = d.codex.enabled;
+    if (typeof d.codex.enabled === 'boolean' || d.codex.enabled === 'auto') c.enabled = d.codex.enabled;
     const p = str(d.codex.path, 500); if (p !== undefined) c.path = p;
     const a = str(d.codex.args, 300); if (a !== undefined && a) c.args = a;
     if (lvl(d.codex.maxLevel)) c.maxLevel = lvl(d.codex.maxLevel);

@@ -12,6 +12,8 @@ const { ClaudeCodeTask, runClaudeChat, findClaude, getVersion } = require('./cc-
 const { analyzeDifficulty, buildEngines, DevRouter } = require('../dev/dev-router');
 const { checkFolder, findBinary, snapshotDir } = require('./dev-engine');
 const { runChain } = require('./dev-chain');
+const { detectLocalModels, buildJuniorEngines } = require('../dev/local-ai');
+const { runTeam } = require('./dev-team');
 const { needsLiveInfo, GRADES, GRADE_INFO, gradeRank, engineGradeOk, engineMaxGrade, suspectDetail, recommendFor } = require('../models/recommend');
 
 const PARTITION = 'persist:jeeves-main'; // 로그인 상태가 유지되는 브라우저 저장 공간
@@ -556,16 +558,22 @@ async function devPlan({ goal, infoGrade, folder, attachments, engineId }) {
   const snap = snapshotDir(fc.folder, 3000);
   const diff = analyzeDifficulty(goal + atts.filter(a => a.kind === 'text').map(a => '\n' + a.text.slice(0, 2000)).join(''), { hasImages: atts.some(a => a.kind === 'image'), fileCount: snap.files.size });
   const { bins, avail } = await devAvail(all);
-  const engines = buildEngines(all, avail);
-  const plan = devRouter.plan({ grade, level: diff.level, engines, prefer: all.dev.prefer });
-  let chain = plan.chain;
+  const junior = buildJuniorEngines(all, await detectLocalModels((u, o) => net.fetch(u, o)));   // 설치된 로컬 AI·무료 API 를 자동으로 찾아 주니어 엔진으로
+  const engines = buildEngines(all, avail, junior);
+  const pm = all.dev.preferMode;   // 'codex' = Claude 한도 아끼기(Codex 먼저), 'claude' = Claude 먼저, 'auto' = 비용·난이도 규칙
+  const plan = devRouter.plan({ grade, level: diff.level, engines, prefer: all.dev.prefer, first: pm === 'codex' || pm === 'claude' ? pm : '' });
+  const first = pm === 'codex' || pm === 'claude' ? pm : '';
+  const planFor = (lv, kind) => devRouter.plan({ grade, level: lv, engines: engines.filter(e => kind === 'any' || (kind === 'junior' ? e.junior : !e.junior)), prefer: all.dev.prefer, first }).chain;
+  let chain = plan.chain.filter(e => !(e.junior && e.weak));   // 약한 주니어에게 어려운 일을 통째로 맡기지 않는다(팀 작업의 쉬운 조각만 맡김)
   if (engineId) { const pick = engines.find(e => e.id === engineId); const okPick = pick && chain.find(e => e.id === engineId); if (!okPick) return { ok: false, error: '고른 엔진을 지금 쓸 수 없습니다(설치·등급·한도 확인).' }; chain = [okPick, ...chain.filter(e => e.id !== engineId)]; }
-  const view = e => ({ id: e.id, label: e.label, cost: e.cost, maxLevel: e.maxLevel, weak: !!e.weak });
-  const out = { ok: true, folder: fc.folder, grade, difficulty: diff, chain: chain.map(view), skipped: plan.skipped, empty: snap.files.size === 0, fileCount: snap.files.size, _chain: chain, _bins: bins, _atts: atts };
+  const jr = all.dev.junior || {};
+  const team = !engineId && jr.team !== false && diff.level >= 3 && planFor(2, 'junior').length > 0 && planFor(diff.level, 'senior').some(e => !e.weak);
+  const view = e => ({ id: e.id, label: e.label, cost: e.cost, maxLevel: e.maxLevel, weak: !!e.weak, local: !!e.local, junior: !!e.junior });
+  const out = { ok: true, folder: fc.folder, grade, difficulty: diff, chain: chain.map(view), skipped: plan.skipped, empty: snap.files.size === 0, fileCount: snap.files.size, team: team ? { seniors: planFor(diff.level, 'senior').filter(e => !e.weak).map(e => e.label), juniors: planFor(2, 'junior').map(e => e.label) } : null, _team: team, _planFor: planFor, _jrMax: Math.min(3, Number(jr.maxLevel) || 2), _chain: chain, _bins: bins, _atts: atts };
   if (!chain.length) out.error = '지금 이 작업을 맡길 수 있는 개발 AI가 없습니다. ' + (plan.skipped.length ? plan.skipped.map(x => x.label + ': ' + x.why).join(' / ') : '설정 → 개발 모드에서 엔진을 켜고, Claude Code 설치·로그인을 확인하세요.');
   return out;
 }
-const pub = p => { const { _chain, _bins, _atts, ...r } = p; return r; };
+const pub = p => { const { _chain, _bins, _atts, _team, _planFor, _jrMax, ...r } = p; return r; };
 ipcMain.handle('dev:plan', async (_, a) => { try { return pub(await devPlan(a || {})); } catch (e) { return { ok: false, error: '계획을 만들지 못했습니다: ' + e.message }; } });
 ipcMain.handle('dev:pick-folder', async () => {
   const cur = config.get().dev.folder;
@@ -585,7 +593,9 @@ ipcMain.handle('dev:open-folder', async () => {
 ipcMain.handle('dev:check', async () => {
   const all = config.get(), { bins, avail } = await devAvail(all);
   const ver = async b => b ? await getVersion(b) : null;
-  return { claude: { path: bins.claude || null, version: await ver(bins.claude) }, codex: { enabled: !!all.dev.codex.enabled, path: bins.codex || null, version: await ver(bins.codex) }, custom: (all.dev.custom || []).map(c => ({ id: c.id, found: !!avail['cli-' + c.id] })) };
+  const localModels = await detectLocalModels((u, o) => net.fetch(u, o));
+  const juniors = buildJuniorEngines(all, localModels).map(e => ({ label: e.label, local: !!e.local, maxLevel: e.maxLevel, maxGrade: e.maxGrade }));
+  return { localModels: localModels.map(m => `${m.label} ${m.model}`), juniors, claude: { path: bins.claude || null, version: await ver(bins.claude) }, codex: { enabled: !!all.dev.codex.enabled, path: bins.codex || null, version: await ver(bins.codex) }, custom: (all.dev.custom || []).map(c => ({ id: c.id, found: !!avail['cli-' + c.id] })) };
 });
 ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, engineId, projectId }) => {
   goal = String(goal || '').trim();
@@ -612,13 +622,16 @@ ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, en
   liveWorks.set(id, { id, dev: true, title, goal, at: new Date().toISOString(), projectId: projectId || null });
   send('sidebar:changed');
   const workDir = path.join(app.getPath('userData'), 'dev-work');
-  const ctl = runChain({ id, goal: fullGoal, folder: p.folder, chain: p._chain, devRouter, bins: p._bins, workDir, level: p.difficulty.level,
+  const runner = p._team
+    ? o => runTeam({ ...o, planFor: p._planFor, juniorMaxLevel: p._jrMax })
+    : o => runChain({ ...o, chain: p._chain });
+  const ctl = runner({ id, goal: fullGoal, folder: p.folder, devRouter, bins: p._bins, workDir, level: p.difficulty.level, router, grade, krwPerUsd: config.get().ui.krwPerUsd || 1400,
     emit: ev => {
       send('agent:event', ev);
       if (ev.type === 'done') {
         devRuns.delete(id);
         if (attDir) { try { fs.rmSync(attDir, { recursive: true, force: true }); } catch (_) {} }
-        saveTaskHistory({ id, title, goal, atts: attNames, infoGrade: grade, at: new Date().toISOString(), success: !!ev.success, summary: ev.summary || '', engine: 'dev', devEngine: ev.engineLabel, folder: p.folder, level: ev.level, chain: ev.chain, estUsd: ev.estUsd, changes: ev.changes ? { added: ev.changes.added.slice(0, 30), modified: ev.changes.modified.slice(0, 30), removed: ev.changes.removed.slice(0, 30), truncated: ev.changes.truncated } : null, denied: ev.denied });
+        saveTaskHistory({ id, title, goal, atts: attNames, infoGrade: grade, at: new Date().toISOString(), success: !!ev.success, summary: ev.summary || '', engine: 'dev', devEngine: ev.engineLabel, folder: p.folder, level: ev.level, chain: ev.chain, team: !!ev.team, teamTasks: ev.teamTasks, estUsd: ev.estUsd, changes: ev.changes ? { added: ev.changes.added.slice(0, 30), modified: ev.changes.modified.slice(0, 30), removed: ev.changes.removed.slice(0, 30), truncated: ev.changes.truncated } : null, denied: ev.denied });
       }
     } });
   devRuns.set(id, { stop: () => ctl.stop(), folder: p.folder });

@@ -1,11 +1,12 @@
 // 개발 모드 진행자: 계획된 엔진 순서대로 실행하고, 한도·로그인·실행 불가·실패가 나면 규칙(DevRouter)에 따라 다음 엔진으로 넘긴다.
 // 넘길 때 AI 가 판단하지 않는다 — 코드가 결정한다. 같은 프로젝트 폴더를 공유하므로 다음 엔진은 폴더의 현재 상태에서 이어 간다.
 const { DevTask } = require('./dev-engine');
+const { ApiCoderTask } = require('./api-coder');
 const { REST_MS } = require('../dev/dev-router');
 
 const KIND_TXT = { limit: '사용 한도', login: '로그인 필요', missing: '실행 불가', task: '작업 실패', error: '오류' };
 
-function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, level, TaskClass = DevTask, timeoutMs }) {
+function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, level, TaskClass = DevTask, timeoutMs, router, grade, krwPerUsd, ApiClass = ApiCoderTask }) {
   const attempts = [];
   let current = null, finished = false, escalated = false, totalUsd = 0;
   const done = (success, summary, last, extra) => {
@@ -19,8 +20,10 @@ function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, lev
     const prompt = prev
       ? `${goal}\n\n[이어서 진행] 앞서 ${prev.engineLabel} 가 ${KIND_TXT[prev.kind] || '문제'}로 중단됐습니다. 프로젝트 폴더에는 거기까지의 결과가 남아 있습니다. 먼저 현재 파일 상태를 확인하고, 이미 된 부분은 다시 만들지 말고 남은 부분을 이어서 끝내세요.`
       : goal;
-    const bin = engine.family === 'cli' ? bins[engine.id] : bins[engine.family];
-    const task = new TaskClass({ id, goal: prompt, folder, engine, bin, workDir, timeoutMs });
+    const bin = engine.kind === 'api-coder' ? null : (engine.family === 'cli' ? bins[engine.id] : bins[engine.family]);
+    const task = engine.kind === 'api-coder'
+      ? new ApiClass({ id, goal: prompt, folder, engine, router, grade, krwPerUsd })
+      : new TaskClass({ id, goal: prompt, folder, engine, bin, workDir, timeoutMs });
     current = task;
     task.on('event', ev => emit(ev));
     task.on('finished', r => onFinished(engine, r));
