@@ -15,8 +15,9 @@ const MAX_TASKS = 10;
 function planPrompt(goal) {
   return `[팀 작업 — 1단계: 계획] 당신은 팀의 시니어입니다. 이 단계에서는 코드를 구현하지 마세요. 프로젝트 폴더의 현재 상태를 확인한 뒤, 아래 두 파일만 만드세요.
 1) .jeeves/PLAN.md — 구조·파일 목록·기술 선택·완료 기준 (한국어, 짧게)
-2) .jeeves/tasks.json — JSON 배열만(설명 글 없이). 각 항목: {"id":1,"title":"짧은 제목","desc":"주니어가 이 글만 읽고 구현할 수 있도록 구체적으로(파일명·함수·입출력·주의점)","files":["만들거나 고칠 파일"],"level":1~4}
-   · level 1~2 = 단순(예: 화면 하나, 함수 몇 개, 문구·스타일) → 주니어(작은 AI)가 맡음 / level 3~4 = 설계·보안·복잡한 연동 → 시니어가 직접
+2) .jeeves/tasks.json — JSON 배열만(설명 글 없이). 각 항목: {"id":1,"title":"짧은 제목","desc":"주니어가 이 글만 읽고 구현할 수 있도록 구체적으로(파일명·함수·입출력·주의점)","files":["만들거나 고칠 파일"],"level":1~4,"risk":"low"|"high"}
+   · level: 1~2 = 단순, 3~4 = 어려움(설계·보안·복잡한 연동)
+   · risk: "low" = 틀려도 품질에 거의 영향이 없고 검증하기 쉬운 부분만(화면 마크업·문구·스타일, 단순 입력 폼, 정형화된 반복 코드, 설정 파일, 단순 시험 코드, 문서). 핵심 로직·보안·데이터·외부 연동·알고리즘·원인 추적이 필요한 수정·여러 파일의 일관성이 필요한 일은 "high". 조금이라도 애매하면 "high". risk 가 low 이고 level 이 1~2 인 작업만 주니어(무료·로컬 AI)가 맡고, 나머지는 시니어가 직접 합니다.
    · 의존 순서대로, 최대 ${MAX_TASKS}개, 작업 하나는 파일 1~3개 범위
    · 이미 완성된 부분은 작업에 넣지 마세요.
 
@@ -52,7 +53,7 @@ function readTasks(folder) {
     if (!desc && !title) return null;
     const lv = Math.round(Number(t.level)); const level = lv >= 1 && lv <= 4 ? lv : 3;   // 모르면 어려운 쪽(시니어)
     const files = (Array.isArray(t.files) ? t.files : []).map(f => String(f)).filter(f => f && !path.isAbsolute(f) && !f.split(/[\\/]/).includes('..')).slice(0, 6);
-    return { id: i + 1, title: title || desc.slice(0, 40), desc: desc || title, files, level };
+    return { id: i + 1, title: title || desc.slice(0, 40), desc: desc || title, files, level, risk: t.risk === 'low' ? 'low' : 'high' };   // 표시가 없거나 애매하면 high(시니어)
   }).filter(Boolean);
   return tasks.length ? tasks : null;
 }
@@ -106,7 +107,7 @@ function runTeam(o) {
       const r = await stage('전체 작업', planFor(level, 'any'), goal, level);
       return finish(r.success, r.summary);
     }
-    info(`📋 작업 ${tasks.length}개: ` + tasks.map(t => `${t.id}.${t.title}(L${t.level})`).join(' · '));
+    info(`📋 작업 ${tasks.length}개: ` + tasks.map(t => `${t.id}.${t.title}(L${t.level}${t.risk === 'low' ? '·주니어 가능' : ''})`).join(' · '));
 
     // 2) 구현
     const results = [];
@@ -114,7 +115,7 @@ function runTeam(o) {
       if (stopNow()) return finish(false, '사용자가 작업을 중지했습니다.', { kind: 'stopped' });
       const t = tasks[i], prompt = taskPrompt(t, i + 1, tasks.length);
       let r = null, by = '';
-      if (t.level <= (o.juniorMaxLevel || 2)) {
+      if (t.level <= (o.juniorMaxLevel || 2) && t.risk === 'low') {
         for (let k = 0; k < 2 && !(r && r.success); k++) {
           const js = planFor(t.level, 'junior'); if (!js.length) break;
           info(`🔧 작업 ${i + 1}/${tasks.length} “${t.title}” → 주니어${k ? ' (재시도)' : ''}`);

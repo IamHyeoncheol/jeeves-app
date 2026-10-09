@@ -46,6 +46,22 @@ function analyzeDifficulty(goal, opts = {}) {
   return { level, label: LEVEL_LABEL[level], score, reasons };
 }
 
+// 주니어(무료·로컬 AI)에게 통째로 맡겨도 품질에 영향이 작은 일인지 규칙으로 판정한다.
+// 원칙: 품질에 영향이 클 수 있으면 맡기지 않는다(애매하면 안 맡김). 난이도 L2 이하이면서 아래 위험 요소가 하나도 없을 때만 통과.
+const RISK = [
+  [/(설계|아키텍처|구조|architecture)/i, '구조·설계'], [/(보안|암호|인증|로그인|권한|토큰|security|auth|encrypt|token)/i, '보안·인증'],
+  [/(결제|정산|payment|billing)/i, '결제'], [/(데이터베이스|\bdb\b|sql|database|동기화|sync|실시간|websocket|동시성|concurren|트랜잭션)/i, '데이터·동기화'],
+  [/(알고리즘|algorithm|파싱|parser|성능|최적화|optimi)/i, '알고리즘·성능'], [/(리팩|refactor|마이그레이션|migrat)/i, '대규모 정리'],
+  [/(버그|오류|에러|디버그|안\s*됨|안돼|안 돼|bug|fix|error|crash)/i, '원인 추적이 필요한 수정'], [/(연동|외부\s*서비스|통합|integrat|api\s*키)/i, '외부 연동']
+];
+function juniorSafe(goal, diff) {
+  const s = String(goal || '');
+  if (diff && diff.level > 2) return { ok: false, why: `난이도 L${diff.level} — 주니어 한도(L2) 초과` };
+  const hit = RISK.filter(([re]) => re.test(s)).map(([, w]) => w);
+  if (hit.length) return { ok: false, why: '품질에 영향이 클 수 있는 영역(' + hit.slice(0, 3).join('·') + ')이라 시니어가 직접 처리' };
+  return { ok: true, why: '' };
+}
+
 // 엔진 목록 만들기. cfg = 설정의 dev 부분, avail = { claude:bool, codex:bool, <custom id>:bool }
 function buildEngines(cfg = {}, avail = {}, extra = []) {
   const dev = cfg.dev || {};
@@ -121,4 +137,4 @@ class DevRouter {
 
 const REST_MS = { limit: 30 * 60 * 1000, login: 60 * 60 * 1000, missing: 60 * 60 * 1000, error: 2 * 60 * 1000 };
 
-module.exports = { analyzeDifficulty, buildEngines, DevRouter, gradeOkFor, LEVEL_LABEL, COST_RANK, REST_MS };
+module.exports = { juniorSafe, analyzeDifficulty, buildEngines, DevRouter, gradeOkFor, LEVEL_LABEL, COST_RANK, REST_MS };

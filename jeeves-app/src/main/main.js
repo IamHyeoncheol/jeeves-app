@@ -9,7 +9,7 @@ const { PageDriver, addressBarToUrl } = require('../agent/driver');
 const { AgentTask } = require('../agent/agent');
 const { JeevesMcpServer } = require('./mcp-server');
 const { ClaudeCodeTask, runClaudeChat, findClaude, getVersion } = require('./cc-engine');
-const { analyzeDifficulty, buildEngines, DevRouter } = require('../dev/dev-router');
+const { analyzeDifficulty, buildEngines, DevRouter, juniorSafe } = require('../dev/dev-router');
 const { checkFolder, findBinary, snapshotDir } = require('./dev-engine');
 const { runChain } = require('./dev-chain');
 const { detectLocalModels, buildJuniorEngines } = require('../dev/local-ai');
@@ -559,17 +559,20 @@ async function devPlan({ goal, infoGrade, folder, attachments, engineId }) {
   const diff = analyzeDifficulty(goal + atts.filter(a => a.kind === 'text').map(a => '\n' + a.text.slice(0, 2000)).join(''), { hasImages: atts.some(a => a.kind === 'image'), fileCount: snap.files.size });
   const { bins, avail } = await devAvail(all);
   const junior = buildJuniorEngines(all, await detectLocalModels((u, o) => net.fetch(u, o)));   // 설치된 로컬 AI·무료 API 를 자동으로 찾아 주니어 엔진으로
-  const engines = buildEngines(all, avail, junior);
+  const safe = juniorSafe(goal, diff);   // 품질에 영향이 큰 일이면 주니어 단독 배정에서 뺀다(팀 작업은 시니어가 조각별로 판정)
+  const allEngines = buildEngines(all, avail, junior);
+  const engines = allEngines.filter(e => !e.junior || safe.ok);
+  const juniorOut = safe.ok ? [] : allEngines.filter(e => e.junior).map(e => ({ id: e.id, label: e.label, why: safe.why }));
   const pm = all.dev.preferMode;   // 'codex' = Claude 한도 아끼기(Codex 먼저), 'claude' = Claude 먼저, 'auto' = 비용·난이도 규칙
   const plan = devRouter.plan({ grade, level: diff.level, engines, prefer: all.dev.prefer, first: pm === 'codex' || pm === 'claude' ? pm : '' });
   const first = pm === 'codex' || pm === 'claude' ? pm : '';
-  const planFor = (lv, kind) => devRouter.plan({ grade, level: lv, engines: engines.filter(e => kind === 'any' || (kind === 'junior' ? e.junior : !e.junior)), prefer: all.dev.prefer, first }).chain;
+  const planFor = (lv, kind) => devRouter.plan({ grade, level: lv, engines: allEngines.filter(e => kind === 'any' || (kind === 'junior' ? e.junior : !e.junior)), prefer: all.dev.prefer, first }).chain;
   let chain = plan.chain.filter(e => !(e.junior && e.weak));   // 약한 주니어에게 어려운 일을 통째로 맡기지 않는다(팀 작업의 쉬운 조각만 맡김)
   if (engineId) { const pick = engines.find(e => e.id === engineId); const okPick = pick && chain.find(e => e.id === engineId); if (!okPick) return { ok: false, error: '고른 엔진을 지금 쓸 수 없습니다(설치·등급·한도 확인).' }; chain = [okPick, ...chain.filter(e => e.id !== engineId)]; }
   const jr = all.dev.junior || {};
   const team = !engineId && jr.team !== false && diff.level >= 3 && planFor(2, 'junior').length > 0 && planFor(diff.level, 'senior').some(e => !e.weak);
   const view = e => ({ id: e.id, label: e.label, cost: e.cost, maxLevel: e.maxLevel, weak: !!e.weak, local: !!e.local, junior: !!e.junior });
-  const out = { ok: true, folder: fc.folder, grade, difficulty: diff, chain: chain.map(view), skipped: plan.skipped, empty: snap.files.size === 0, fileCount: snap.files.size, team: team ? { seniors: planFor(diff.level, 'senior').filter(e => !e.weak).map(e => e.label), juniors: planFor(2, 'junior').map(e => e.label) } : null, _team: team, _planFor: planFor, _jrMax: Math.min(3, Number(jr.maxLevel) || 2), _chain: chain, _bins: bins, _atts: atts };
+  const out = { ok: true, folder: fc.folder, grade, difficulty: diff, chain: chain.map(view), skipped: [...plan.skipped, ...juniorOut], empty: snap.files.size === 0, fileCount: snap.files.size, team: team ? { seniors: planFor(diff.level, 'senior').filter(e => !e.weak).map(e => e.label), juniors: planFor(2, 'junior').map(e => e.label) } : null, _team: team, _planFor: planFor, _jrMax: Math.min(3, Number(jr.maxLevel) || 2), _chain: chain, _bins: bins, _atts: atts };
   if (!chain.length) out.error = '지금 이 작업을 맡길 수 있는 개발 AI가 없습니다. ' + (plan.skipped.length ? plan.skipped.map(x => x.label + ': ' + x.why).join(' / ') : '설정 → 개발 모드에서 엔진을 켜고, Claude Code 설치·로그인을 확인하세요.');
   return out;
 }

@@ -24,7 +24,8 @@ const run = (folder, handler, extra = {}) => new Promise(resolve => {
   runTeam({ id: 9, goal: '여러 파일로 된 앱을 만들어 줘', folder, level: 3, planFor, devRouter: rt, bins: { claude: 'x' }, workDir: folder, emit: ev => { events.push(ev); if (ev.type === 'done') resolve({ done: ev, calls, events, rt }); }, TaskClass: Cls, ApiClass: Cls, juniorMaxLevel: 2, ...extra });
 });
 const writeTasks = (folder, arr) => { fs.mkdirSync(path.join(folder, '.jeeves'), { recursive: true }); fs.writeFileSync(path.join(folder, '.jeeves', 'tasks.json'), typeof arr === 'string' ? arr : JSON.stringify(arr)); };
-const T3 = [{ id: 1, title: '화면', desc: 'index.html 만들기', files: ['index.html'], level: 1 }, { id: 2, title: '스타일', desc: 'style.css', files: ['style.css'], level: 2 }, { id: 3, title: '로그인 보안', desc: '인증 로직', files: ['auth.js'], level: 3 }];
+const T3 = [{ id: 1, title: '화면', desc: 'index.html 만들기', files: ['index.html'], level: 1, risk: 'low' }, { id: 2, title: '스타일', desc: 'style.css', files: ['style.css'], level: 2, risk: 'low' }, { id: 3, title: '로그인 보안', desc: '인증 로직', files: ['auth.js'], level: 3, risk: 'low' }];   // L3 는 risk 가 low 여도 시니어
+const T_HIGH = [{ id: 1, title: '핵심 로직', desc: '계산 규칙', files: ['calc.js'], level: 1, risk: 'high' }, { id: 2, title: '표시 없음', desc: 'x', files: [], level: 1 }];
 
 (async () => {
   await t('tasks.json 읽기: 배열/객체 모두, 위험 경로 제거, 이상한 항목 버림', () => {
@@ -42,6 +43,13 @@ const T3 = [{ id: 1, title: '화면', desc: 'index.html 만들기', files: ['ind
     assert.deepStrictEqual(done.teamTasks.map(x => x.ok), [true, true, true]);
     assert.ok(/4단계/.test(calls[4].goal) && /2\/3/.test(calls[2].goal));
     assert.ok(done.team === true);
+  });
+
+  await t('팀: 품질 영향이 클 수 있는(risk high·표시 없음) 조각은 L1 이어도 시니어가 직접', async () => {
+    const d = tmp();
+    const { done, calls } = await run(d, o => { if (/1단계/.test(o.goal)) writeTasks(d, T_HIGH); });
+    assert.strictEqual(done.success, true);
+    assert.ok(calls.every(c => c.by === 'claude-sonnet'), JSON.stringify(calls.map(c => c.by)));
   });
 
   await t('팀: 주니어가 두 번 실패하면 같은 작업을 시니어가 맡음', async () => {

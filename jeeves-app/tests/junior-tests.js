@@ -3,7 +3,7 @@ const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path');
 const { checkCommand, safePath, ApiCoderTask } = require('../src/main/api-coder');
 const { runChain } = require('../src/main/dev-chain');
-const { buildEngines, DevRouter } = require('../src/dev/dev-router');
+const { buildEngines, DevRouter, juniorSafe, analyzeDifficulty } = require('../src/dev/dev-router');
 const { detectLocalModels, buildJuniorEngines } = require('../src/dev/local-ai');
 const { ModelRouter } = require('../src/models/router');
 
@@ -102,6 +102,12 @@ const runTask = (script, folder, engine = eng('jr')) => new Promise(resolve => {
     assert.strictEqual(hit, 0);
     const res = await router.callProvider({ type: 'openai', label: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1', apiKey: 'ollama', tier: 'free' }, 'm', { system: 's', messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], infoGrade: 'S' });
     assert.ok(res.content.length && hit === 1);
+  });
+
+  await t('주니어 단독 배정: 품질에 영향이 클 수 있는 일(보안·버그·결제·연동 등)은 제외, 단순 문구·스타일만 통과', () => {
+    const ok = g => juniorSafe(g, analyzeDifficulty(g)).ok;
+    assert.ok(ok('버튼 문구와 색상을 바꿔 줘'));
+    for (const g of ['로그인 기능 만들어줘', '결제 오류 고쳐줘', '이 버그 원인을 찾아줘', '외부 API 연동해줘', '데이터베이스 동기화', '여러 파일로 된 앱을 만들어줘']) assert.ok(!ok(g), g);
   });
 
   let fail = 0;
