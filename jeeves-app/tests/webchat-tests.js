@@ -1,6 +1,6 @@
 // 웹 로그인형 공급자 시험(가짜 화면 사용): 질문 만들기, 답변 잘라내기, 로그인 필요 처리, 입력창 없음, 답 안정 대기, 한도 문구, 도구 호출 거부
 const assert = require('assert');
-const { askWebChat, buildPrompt, extractAnswer, callWebChat, setWebChatHost } = require('../src/models/webchat');
+const { askWebChat, cleanAnswer, buildPrompt, extractAnswer, callWebChat, setWebChatHost } = require('../src/models/webchat');
 const { ModelRouter } = require('../src/models/router');
 const results = [];
 const t = async (name, fn) => { try { await fn(); results.push([true, name]); } catch (e) { results.push([false, name, e.message]); } };
@@ -36,6 +36,13 @@ const Q = '1인 기업 사업 모델을 추천해줘';
   await t('답변 자르기: 따옴표·마크다운 모양이 바뀌어도 질문을 찾음', () => {
     const page = '메뉴\n\n짧게 답하세요.\n\n연결 테스트입니다. “OK”라고만 답하세요.\n\nOK';
     assert.strictEqual(extractAnswer(page, '짧게 답하세요.\n\n연결 테스트입니다. "OK"라고만 답하세요.'), 'OK');
+  });
+
+  await t('답변 정리: 역할 이름 제거, 화면 장식(기본 프롬프트 카드)은 자름', () => {
+    const raw = 'Assistant\nOK\n기본 프롬프트\n기본 프롬프트\nAxiom Complex Goal → A Data-Driven Master Plan. Instantly.';
+    assert.strictEqual(cleanAnswer(raw, { stopAt: ['기본 프롬프트'] }), 'OK');
+    assert.strictEqual(cleanAnswer('Assistant OK', {}), 'OK');
+    assert.strictEqual(cleanAnswer('좋은 아이디어는 어시스턴트가 아니라', {}), '좋은 아이디어는 어시스턴트가 아니라');
   });
 
   await t('대화: 답이 스트리밍되다 멈추면(안정) 최종 답을 돌려줌', async () => {

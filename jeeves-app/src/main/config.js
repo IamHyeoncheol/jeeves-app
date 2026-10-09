@@ -38,7 +38,7 @@ const DEFAULTS = {
     deepseek: { type: 'openai', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', apiKey: '', tier: 'paid', maxGrade: 'P' },
     // ExoLobe(magnumatics.com): API 가 아니라 웹 로그인 후 대화창으로 쓰는 AI. 로그인은 지브스 브라우저에서 직접. 공유 계정이라 공개(P) 정보만, 답은 근거 미검증(활용안 A 규칙)
     // id 를 exolobe-web 으로 둔 이유: 예전에 사용자가 직접 추가한 'exolobe'(API 방식, 키 없음)와 겹치지 않게
-    'exolobe-web': { type: 'webchat', label: 'ExoLobe 웹 로그인 (키 필요 없음)', baseUrl: 'https://www.magnumatics.com/chat', apiKey: '', tier: 'free', maxGrade: 'P' },
+    'exolobe-web': { type: 'webchat', label: 'ExoLobe 웹 로그인 (키 필요 없음)', baseUrl: 'https://www.magnumatics.com/chat', apiKey: '', tier: 'free', maxGrade: 'P', cleanup: { stopAt: ['기본 프롬프트'], stripLeading: [] } },   // 답 뒤에 붙는 "기본 프롬프트" 카드는 답이 아니므로 자름 [화면 확인 기준]
     ollama: { type: 'openai', label: 'Ollama (내 PC 로컬 모델)', baseUrl: 'http://127.0.0.1:11434/v1', apiKey: 'ollama', tier: 'free' }
   },
   removedProviders: [],   // 사용자가 지운 기본 공급자 id (다시 살아나지 않게 기록)

@@ -41,6 +41,17 @@ function extractAnswer(regionText, question) {
   return src.slice(idx[at + q.length - 1] + 1).replace(/^[\s"'”“’‘)\]*_`.!?。…]+/, '').trim();
 }
 
+// 사이트가 답 앞뒤에 붙이는 화면 장식(역할 이름, 추천 프롬프트 카드 등)을 걷어 낸다.
+// cfg.stopAt: 이 글이 나오면 그 앞까지만 답 / cfg.stripLeading: 답 맨 앞에서 지울 글(정규식 문자열). 역할 이름(Assistant 등)은 기본으로 지운다.
+function cleanAnswer(text, cfg = {}) {
+  let t = String(text || '');
+  t = t.replace(/^\s*(assistant|어시스턴트)\s*[:：]?\s*(\n|$)/i, '').replace(/^\s*(assistant|어시스턴트)\s+(?=\S)/i, '');
+  for (const re of cfg.stripLeading || []) { try { t = t.replace(new RegExp('^\\s*(?:' + re + ')\\s*', 'i'), ''); } catch (_) {} }
+  let cut = t.length;
+  for (const m of cfg.stopAt || []) { const i = t.indexOf(m); if (i > 0 && i < cut) cut = i; }
+  return t.slice(0, cut).trim();
+}
+
 const prepareScript = sel => `/*JV:prepare*/(() => {
   const vis = el => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 40 && r.height > 14 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
   const q = ${JSON.stringify(sel.input || '')};
@@ -116,7 +127,7 @@ async function callWebChat(p, model, req) {
   if (!prompt) throw new ProviderError('보낼 질문이 비어 있습니다.');
   const job = chain.then(async () => {
     const wc = await host(p);
-    const ans = await askWebChat(wc, prompt, { selectors: p.selectors, timeoutMs: p.timeoutMs, pollMs: p.pollMs, stableMs: p.stableMs });
+    const ans = cleanAnswer(await askWebChat(wc, prompt, { selectors: p.selectors, timeoutMs: p.timeoutMs, pollMs: p.pollMs, stableMs: p.stableMs }), p.cleanup);
     if (ans.length < 200 && LIMIT_TXT.test(ans)) { const e = new ProviderError(`${p.label}: 사용 한도에 걸린 것으로 보입니다 — ${ans.slice(0, 80)}`); e.kind = 'limit'; throw e; }
     return ans;
   });
@@ -125,4 +136,4 @@ async function callWebChat(p, model, req) {
   return { content: [{ type: 'text', text }], stopReason: 'end_turn', usage: { input: 0, output: 0 } };
 }
 
-module.exports = { callWebChat, askWebChat, setWebChatHost, buildPrompt, extractAnswer };
+module.exports = { cleanAnswer, callWebChat, askWebChat, setWebChatHost, buildPrompt, extractAnswer };
