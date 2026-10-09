@@ -146,16 +146,19 @@ class JeevesMcpServer {
   }
 
   // ── HTTP ──
-  async start({ port, token }) {
-    this.token = token;
+  // token: 외부 에이전트용 고정 토큰(설정 mcp.allowExternal 이 켜졌을 때만 통과) / internalToken: 지브스가 직접 띄운 Claude Code 만 아는 실행마다 새로 만든 토큰(항상 통과).
+  // internalToken 을 안 주면(시험·예전 방식) token 은 항상 통과한다.
+  async start({ port, token, internalToken }) {
+    this.token = token; this.internalToken = internalToken;
     this.server = http.createServer(async (req, res) => {
       const host = (req.headers.host || '').split(':')[0];
       if (!['127.0.0.1', 'localhost'].includes(host)) { res.writeHead(403).end('forbidden host'); return; } // 외부 웹페이지의 우회 접속 방지
       if (!req.url.startsWith('/mcp')) { res.writeHead(404).end(); return; }
       const auth = req.headers.authorization || '';
       const given = Buffer.from(auth.replace(/^Bearer\s+/i, ''));
-      const want = Buffer.from(this.token);
-      if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) { res.writeHead(401, { 'content-type': 'application/json' }).end('{"error":"unauthorized"}'); return; }
+      const same = t => { const w = Buffer.from(String(t || '')); return w.length > 0 && given.length === w.length && crypto.timingSafeEqual(given, w); };
+      const external = this.internalToken === undefined || ((this.d.getConfig().mcp || {}).allowExternal === true);
+      if (!(same(this.internalToken) || (external && same(this.token)))) { res.writeHead(401, { 'content-type': 'application/json' }).end('{"error":"unauthorized"}'); return; }
       if (req.method !== 'POST') { res.writeHead(405, { allow: 'POST' }).end(); return; }
       let body = '';
       req.on('data', c => { body += c; if (body.length > 5e6) req.destroy(); });

@@ -727,6 +727,7 @@ $('#open-settings').onclick = () => openSettings();
 async function refreshMcp() {
   const st = await api.mcp.status();
   $('#mcp-status').textContent = st.running ? `✅ 열림 — ${st.url} (외부 호출 ${st.calls}회)` : `❌ 닫힘${st.error ? ' — ' + st.error : ''}`;
+  $('#mcp-external').checked = !!st.allowExternal;
   $('#cmd-claude').textContent = `claude mcp add --transport http --scope user jeeves ${st.url} --header "Authorization: Bearer ${st.token}"`;
   $('#cmd-codex').textContent = `[mcp_servers.jeeves]\nurl = "${st.url}"\nhttp_headers = { "Authorization" = "Bearer ${st.token}" }`;
 }
@@ -743,6 +744,11 @@ async function checkClaude(show) {
   ap.onclick = () => { $('#engine-type').value = want; ap.classList.add('hidden'); $('#engine-rec').textContent += ' — 적용됨(저장을 눌러 주세요)'; };
 }
 $('#cc-check').onclick = () => checkClaude(true);
+$('#mcp-external').onchange = async () => {
+  const on = $('#mcp-external').checked;
+  if (on && !confirm('외부 에이전트가 지브스를 거치지 않고 브라우저를 직접 조작할 수 있게 됩니다.\n정보 등급·비용 한도·중지 통제를 우회할 수 있어 권장하지 않습니다.\n\n그래도 허용할까요?')) { $('#mcp-external').checked = false; return; }
+  await api.config.update({ mcp: { allowExternal: on } }); refreshMcp();
+};
 $('#mcp-regen').onclick = async () => {
   if (!confirm('토큰을 새로 만들면 Claude Code·Codex에 등록한 연결을 다시 등록해야 합니다. 계속할까요?')) return;
   await api.mcp.restart(true); refreshMcp();

@@ -17,6 +17,7 @@ const pending = new Map(); // 사용자 확인·답변 대기 (키: 작업 id �
 let extCard = { id: null, last: 0 }, extSeq = 0;
 const tasks = new Map();
 let taskSeq = 0;
+const internalMcpToken = require('crypto').randomBytes(24).toString('base64url');   // 지브스가 띄운 Claude Code 전용(실행마다 새로 만들고 저장하지 않음)
 let subRestUntil = 0;   // 구독(Claude Code) 한도에 걸렸을 때 쉬는 시각(이때까지 구독을 건너뜀)
 let chatHistory = []; // 대화 모드 기록 (공통 형식)
 let chatGradeMax = 'P'; // 이 대화에서 지금까지 다룬 가장 높은 정보 등급 (낮추려면 대화를 새로 시작해야 한다)
@@ -279,13 +280,13 @@ async function startMcp() {
     approve: info => waitUser(extKey(), 'confirm', info),
     ask: question => waitUser(extKey(), 'ask', { question })
   });
-  try { await mcp.start({ port: m.port, token: m.token }); mcpError = null; }
+  try { await mcp.start({ port: m.port, token: m.token, internalToken: internalMcpToken }); mcpError = null; }
   catch (e) { mcpError = e.code === 'EADDRINUSE' ? `포트 ${m.port} 가 이미 사용 중` : e.message; mcp = null; }
 }
 ipcMain.handle('copy', (_, text) => clipboard.writeText(String(text || '')));
 ipcMain.handle('mcp:status', () => {
   const m = config.get().mcp;
-  return { running: !!mcp, url: mcp ? mcp.url() : `http://127.0.0.1:${m.port}/mcp`, token: m.token, error: mcpError, calls: mcp ? mcp.calls : 0 };
+  return { running: !!mcp, url: mcp ? mcp.url() : `http://127.0.0.1:${m.port}/mcp`, token: m.token, allowExternal: m.allowExternal === true, error: mcpError, calls: mcp ? mcp.calls : 0 };
 });
 ipcMain.handle('mcp:restart', async (_, { regenerate } = {}) => {
   if (mcp) { mcp.stop(); mcp = null; }
@@ -354,7 +355,7 @@ ipcMain.handle('agent:start', async (_, { goal, where, infoGrade }) => {
     // 구독 엔진: 정품 Claude Code 실행 → Jeeves MCP 도구로 이 탭을 조작
     mcp.tabId = tab.id;
     ccRunning = id;
-    const task = new ClaudeCodeTask({ id, goal, bin: ccBin, mcpUrl: mcp.url(), mcpToken: all.mcp.token, model: all.engine.claudeModel, workDir: path.join(app.getPath('userData'), 'claude-work'),
+    const task = new ClaudeCodeTask({ id, goal, bin: ccBin, mcpUrl: mcp.url(), mcpToken: internalMcpToken, model: all.engine.claudeModel, workDir: path.join(app.getPath('userData'), 'claude-work'),
       // 구독 한도 → 기다리지 않고 Jeeves 내장 에이전트(무료·저렴한 API 공급자)로 같은 목표를 이어서 진행(자동 전환)
       onLimit: () => {
         const c = config.get();

@@ -144,7 +144,7 @@
         </section>
         <section>
           <h3>5. 구독 연결 (Claude Code · Codex)</h3>
-          <p class="muted">내 구독(Claude Pro·Max, ChatGPT Plus·Pro)으로 쓰는 방법입니다. Jeeves은 로그인 정보를 전혀 다루지 않고, 정품 Claude Code·Codex가 내 로그인으로 Jeeves 브라우저 도구를 부릅니다. <b>개인 사용 전용</b>입니다.</p>
+          <p class="muted">내 구독(Claude Pro·Max, ChatGPT Plus·Pro)으로 쓰는 방법입니다. Jeeves은 로그인 정보를 전혀 다루지 않고, <b>지브스가 최상위</b>에서 정품 Claude Code(Codex는 준비 중)를 직접 실행해 일을 시키고, 그 일꾼이 지브스 브라우저 도구를 씁니다. <b>개인 사용 전용</b>입니다.</p>
           <label class="row"><span>🤖 작업 엔진<br><small class="muted">구독: 내 PC의 정품 Claude Code 실행 (한도에 걸리면 풀릴 때 자동 재개)</small></span>
             <select id="engine-type"><option value="api">API 키 방식 (Sonnet + Jev, 사용량만큼 과금)</option><option value="claude-code">구독: Claude Code (Pro·Max)</option></select>
           </label>
@@ -168,9 +168,14 @@
             <p class="muted">설치 명령은 Anthropic 공식 문서 기준입니다. 바뀌었을 수 있으니 code.claude.com 의 설치 안내를 함께 확인하세요.</p>
           </details>
           <div class="row"><span>Jeeves 도구 창구(MCP)<br><small class="muted" id="mcp-status">확인 중…</small></span><span><button class="ghost" id="mcp-regen" title="토큰을 바꾸면 기존 연결은 다시 등록해야 합니다">토큰 새로 만들기</button></span></div>
+          <details class="howto"><summary>고급: 외부 에이전트(Claude Code·Codex)가 지브스를 직접 부리게 하기 — 권장하지 않음</summary>
+            <p class="muted"><b>지브스가 최상위</b>여야 지시·비용·정보 등급 검사·중지가 한곳에서 돌아갑니다. 이 길을 열면 외부 에이전트가 지브스를 거치지 않고 브라우저를 직접 조작해, 위 통제를 우회할 수 있습니다. 기본은 꺼짐이며, 지브스가 직접 실행하는 Claude Code 에는 영향이 없습니다.</p>
+            <label class="row"><span>외부 에이전트의 직접 접속 허용</span><input type="checkbox" id="mcp-external"></label>
           <div class="copybox"><div class="cb-head"><span>내 Claude Code(터미널)에서 Jeeves 쓰기 — PowerShell에 한 번 붙여 넣기</span> <button class="ghost small" data-copy-target="cmd-claude">복사</button></div><pre id="cmd-claude"></pre></div>
           <div class="copybox"><div class="cb-head"><span>내 Codex(ChatGPT 구독)에서 Jeeves 쓰기 — <code>%USERPROFILE%\.codex\config.toml</code> 끝에 추가</span> <button class="ghost small" data-copy-target="cmd-codex">복사</button></div><pre id="cmd-codex"></pre></div>
           <p class="muted">연결 뒤에는 Claude Code·Codex에게 "Jeeves 브라우저로 ○○ 해 줘"라고 하면 됩니다. 위험한 동작은 Jeeves 화면에서 승인을 받습니다. 토큰은 비밀번호처럼 다루세요.</p>
+          </details>
+
         </section>
         <section>
           <h3>6. 이번 실행 사용량</h3>

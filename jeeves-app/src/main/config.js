@@ -56,7 +56,7 @@ const DEFAULTS = {
   // 작업 엔진: 'api' = API 키(Claude·Jev 등, 사용량만큼 과금) / 'claude-code' = 내 PC 의 정품 Claude Code(내 구독)
   engine: { type: 'api', claudePath: '', claudeModel: 'sonnet', maxGrade: 'I', useForChat: true },   // maxGrade: 구독 엔진이 받을 수 있는 최고 정보 등급(S는 항상 차단)
   // 외부 에이전트(Claude Code·Codex)가 Jeeves 브라우저를 쓰게 하는 창구 (내 PC 안에서만)
-  mcp: { enabled: true, port: 47840, token: '' }
+  mcp: { enabled: true, port: 47840, token: '', allowExternal: false }   // allowExternal: 외부 에이전트(Codex 등)가 지브스를 직접 부리는 길(기본 꺼짐: 지브스가 최상위여야 함)
 };
 
 function deepMerge(base, extra) {
@@ -165,6 +165,7 @@ class ConfigStore {
     if (patch.engine) {
       if (patch.engine.maxGrade !== undefined && !ENGINE_GRADES.includes(patch.engine.maxGrade)) delete patch.engine.maxGrade;
     }
+    if (patch.mcp && patch.mcp.allowExternal !== undefined) patch.mcp.allowExternal = patch.mcp.allowExternal === true;
     if (patch.failover !== undefined) patch.failover = !!patch.failover;
     delete patch.infoGradeV;
     delete patch.removedProviders;   // 삭제 기록은 removeProvider() 로만 바꾼다

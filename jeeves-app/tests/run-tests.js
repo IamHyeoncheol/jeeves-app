@@ -275,6 +275,25 @@ function fakeFetch(handler) {
     await assert.rejects(new ModelRouter(() => cfg, f).call('chat', { messages: [] }), /크레딧\(선불 잔액\) 부족/);
   });
 
+  await t('도구 창구: 지브스가 띄운 일꾼 토큰은 항상 통과, 외부 에이전트 토큰은 "직접 접속 허용"을 켠 때만 통과', async () => {
+    const http = require('http');
+    const { JeevesMcpServer } = require('../src/main/mcp-server');
+    const cfg = { mcp: { allowExternal: false } };
+    const server = new JeevesMcpServer({ tabs: { list: () => [], get: () => null, active: () => null }, getConfig: () => cfg, router: { available: () => false }, approve: async () => ({ ok: false }), ask: async () => ({ text: '' }), activity: () => {} });
+    const port = await server.start({ port: 0, token: 'external-token-abcdef', internalToken: 'internal-token-123456' });
+    const status = tok => new Promise(res => {
+      const r = http.request({ host: '127.0.0.1', port, path: '/mcp', method: 'GET', headers: { authorization: 'Bearer ' + tok } }, x => { x.resume(); res(x.statusCode); });
+      r.end();
+    });
+    try {
+      assert.notStrictEqual(await status('internal-token-123456'), 401);   // 405(GET 불가)는 인증 통과를 뜻함
+      assert.strictEqual(await status('external-token-abcdef'), 401);       // 기본: 외부 직접 접속 차단
+      cfg.mcp.allowExternal = true;
+      assert.notStrictEqual(await status('external-token-abcdef'), 401);   // 사용자가 허용하면 통과
+      assert.strictEqual(await status('wrong-token-xxxxxxxxxxx'), 401);
+    } finally { server.stop(); }
+  });
+
   // ── 자동 전환(한도·잔액 소진 시 다음 공급자로) ─────────────────
   const okOpenAI = { status: 200, body: { choices: [{ message: { content: '전환 성공' } }], usage: { prompt_tokens: 3, completion_tokens: 2 } } };
   const creditErr = { status: 400, body: { error: { message: 'Your credit balance is too low to access the Anthropic API.' } } };
