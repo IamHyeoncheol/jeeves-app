@@ -388,3 +388,7 @@ body.panel-narrow.layout-web #panel > * { display: none; }
 #skill-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); color: var(--accent); border-radius: 12px; padding: 2px 4px 2px 10px; font-size: 12.5px; }
 #skill-chip button { border: 0; background: none; cursor: pointer; color: inherit; font-size: 13px; }
 #skill-chip.hidden { display: none; }
+
+/* 보내기 옆 "새 대화": 보내기와 같은 크기의 테두리 단추 */
+#reset-chat { border: 1px solid var(--accent); color: var(--accent); background: var(--bg); border-radius: 8px; padding: 6px 16px; font-weight: 600; font-size: inherit; cursor: pointer; text-decoration: none; }
+#reset-chat:hover { background: var(--accent-soft); }
