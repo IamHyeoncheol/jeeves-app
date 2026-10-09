@@ -238,3 +238,12 @@ body.resizing #web-area::after { content: '크기 조절 중…'; position: abso
 
 .prov .offline { display: block; font-weight: 400; font-size: 11px; color: var(--muted, #666); margin-top: 3px; cursor: pointer; }
 .prov .offline input { width: auto; margin: 0 4px 0 0; vertical-align: middle; }
+
+/* 메시지 동작 단추 */
+.msg-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; opacity: .55; }
+.msg:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
+.msg-actions button { border: 1px solid var(--line); background: var(--bg); color: var(--ink-2); border-radius: 12px; font-size: 11.5px; padding: 1px 8px; cursor: pointer; }
+.msg-actions button:hover { border-color: var(--accent); color: var(--accent); }
+.msg-actions button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.msg.user .msg-actions button { background: transparent; color: var(--accent-ink); border-color: rgba(255,255,255,.5); }
+.msg-toast { margin-top: 4px; }

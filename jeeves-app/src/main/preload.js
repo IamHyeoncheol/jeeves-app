@@ -29,7 +29,10 @@ contextBridge.exposeInMainWorld('jeeves', {
   },
   chat: {
     send: (text, opts) => ipcRenderer.invoke('chat:send', { text, ...opts }),
-    reset: () => ipcRenderer.invoke('chat:reset')
+    reset: () => ipcRenderer.invoke('chat:reset'),
+    truncate: k => ipcRenderer.invoke('chat:truncate', k),
+    exportText: (name, text) => ipcRenderer.invoke('export:save', { name, text }),
+    feedback: f => ipcRenderer.invoke('feedback:save', f)
   },
   agent: {
     start: (goal, where, infoGrade) => ipcRenderer.invoke('agent:start', { goal, where, infoGrade }),

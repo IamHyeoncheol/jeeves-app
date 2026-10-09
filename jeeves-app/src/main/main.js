@@ -182,7 +182,7 @@ ipcMain.handle('chat:send', async (_, { text, includePage, mode, infoGrade, lowe
     const bin = rec && rec.tier === 'free' ? null : await findClaude(cfgNow.engine.claudePath);
     if (bin) {
       const model = role === 'summarize' ? 'haiku' : (cfgNow.engine.claudeModel || '');   // 요약은 한도가 덜 드는 가벼운 모델
-      const hist = chatHistory.map(m => `${m.role === 'user' ? '사용자' : 'AI'}: ${m.content.map(b => b.text).join(' ')}`).join('\n');
+      const hist = chatHistory.slice(-20).map(m => `${m.role === 'user' ? '사용자' : 'AI'}: ${m.content.map(b => b.text).join(' ')}`).join('\n');
       const prompt = (hist ? `[이전 대화]\n${hist}\n\n` : '') + blocks.map(b => b.text).join('\n\n');
       try {
         const out = await runClaudeChat({ bin, model, system, prompt, workDir: path.join(app.getPath('userData'), 'claude-work'), web: gradeRank(grade) <= gradeRank('I') });   // 웹 검색·읽기는 P·I 등급에서만(읽기 전용)
@@ -190,7 +190,7 @@ ipcMain.handle('chat:send', async (_, { text, includePage, mode, infoGrade, lowe
         if (gradeRank(grade) > gradeRank(chatGradeMax)) chatGradeMax = grade;
         chatHistory.push({ role: 'user', content: [{ type: 'text', text: (includePage ? '(현재 페이지 참고) ' : '') + (text || '페이지 요약 요청') }] });
         chatHistory.push({ role: 'assistant', content: [{ type: 'text', text: answer }] });
-        chatHistory = chatHistory.slice(-20);
+        chatHistory = chatHistory.slice(-200);
         return { ok: true, text: answer, model: `Claude Code 구독 · ${model || '기본'}`, costKrw: null };
       } catch (e) { return { ok: false, error: e.message }; }
     }
@@ -198,13 +198,13 @@ ipcMain.handle('chat:send', async (_, { text, includePage, mode, infoGrade, lowe
   // 여기부터는 API 키 방식(인터넷 도구 없음): 실시간 정보 질문이면 작업 모드(검색 가능)를 권한다
   if (role === 'chat' && !liveAck && needsLiveInfo(text)) return { ok: false, needLive: true };
   try {
-    const res = await router.call(role, { system, messages: [...chatHistory, userMsg], maxTokens: 8192, infoGrade: grade });
+    const res = await router.call(role, { system, messages: [...chatHistory.slice(-20), userMsg], maxTokens: 8192, infoGrade: grade });
     if (gradeRank(grade) > gradeRank(chatGradeMax)) chatGradeMax = grade;
     const answer = res.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
     // 기록에는 페이지 원문 대신 질문만 남겨 길이를 관리한다
     chatHistory.push({ role: 'user', content: [{ type: 'text', text: (includePage ? '(현재 페이지 참고) ' : '') + (text || '페이지 요약 요청') }] });
     chatHistory.push({ role: 'assistant', content: [{ type: 'text', text: answer }] });
-    chatHistory = chatHistory.slice(-20);
+    chatHistory = chatHistory.slice(-200);
     const rate = config.get().ui.krwPerUsd || 1400;
     return { ok: true, text: answer, model: res.model, costKrw: res.costUsd == null ? null : Math.round(res.costUsd * rate * 10) / 10 };
   } catch (e) {
@@ -212,6 +212,22 @@ ipcMain.handle('chat:send', async (_, { text, includePage, mode, infoGrade, lowe
   }
 });
 ipcMain.handle('chat:reset', () => { chatHistory = []; chatGradeMax = 'P'; });
+// 수정·재시도: k 번째 질문(0부터) 이전까지만 남기고 그 뒤 기록은 지운다(질문·답변이 한 쌍씩 쌓임)
+ipcMain.handle('chat:truncate', (_, k) => { chatHistory = chatHistory.slice(0, Math.max(0, (parseInt(k, 10) || 0) * 2)); return true; });
+// 답변 내보내기: 저장 위치를 사용자가 고른다(.md / .txt)
+ipcMain.handle('export:save', async (_, { name, text }) => {
+  const r = await dialog.showSaveDialog(win, { title: '답변 내보내기', defaultPath: String(name || 'Jeeves_답변.md').replace(/[\\/:*?"<>|]/g, '_'), filters: [{ name: 'Markdown', extensions: ['md'] }, { name: '텍스트', extensions: ['txt'] }] });
+  if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+  try { fs.writeFileSync(r.filePath, String(text || ''), 'utf8'); return { ok: true, path: r.filePath }; } catch (e) { return { ok: false, error: e.message }; }
+});
+// 좋은/나쁜 답변 표시: 이 PC에만 저장(별점·모델·등급·시각과 앞부분 100자). 외부로 보내지 않음
+ipcMain.handle('feedback:save', (_, f) => {
+  try {
+    const rec = { t: new Date().toISOString(), rating: f.rating === 'good' ? 'good' : f.rating === 'bad' ? 'bad' : 'none', model: String(f.model || '').slice(0, 80), grade: String(f.grade || '').slice(0, 2), q: String(f.q || '').slice(0, 100), a: String(f.a || '').slice(0, 100) };
+    fs.appendFileSync(path.join(app.getPath('userData'), 'jeeves-feedback.jsonl'), JSON.stringify(rec) + '\n', 'utf8');
+    return true;
+  } catch (_) { return false; }
+});
 
 // ── 사용자 확인·답변 (Jeeves 에이전트, Claude Code, 외부 에이전트 공통) ──
 function waitUser(key, kind, data, timeoutMs = 10 * 60 * 1000) {

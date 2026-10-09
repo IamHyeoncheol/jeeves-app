@@ -218,19 +218,86 @@ setMode('ask');
 // ── 메시지 ────────────────────────────────────────────
 const box = $('#messages');
 function scrollDown() { box.scrollTop = box.scrollHeight; }
-function addUser(text, tag) {
+// 메시지 아래 작은 동작 단추 줄
+function actBar(buttons) {
+  const bar = document.createElement('div');
+  bar.className = 'msg-actions';
+  for (const [key, label, title] of buttons) { const b = document.createElement('button'); b.dataset.act = key; b.textContent = label; b.title = title; bar.appendChild(b); }
+  return bar;
+}
+// info: { kind: 'chat' | 'sum' | 'act', page: 지금 페이지 포함 여부 }
+function addUser(text, tag, info) {
   const d = document.createElement('div');
   d.className = 'msg user';
-  d.innerHTML = (tag ? `<span class="tag">${esc(tag)}</span>` : '') + esc(text);
+  d.innerHTML = (tag ? `<span class="tag">${esc(tag)}</span>` : '') + `<span class="body">${esc(text)}</span>`;
+  d._raw = text; d._info = info || { kind: 'chat' };
+  const k = d._info.kind;
+  d.appendChild(actBar(k === 'chat' ? [['copy', '복사', '복사'], ['edit', '수정', '고쳐서 다시 보내기'], ['retry', '재시도', '같은 질문 다시 보내기']] : k === 'sum' ? [['copy', '복사', '복사'], ['retry', '재시도', '다시 요약']] : [['copy', '복사', '복사']]));
   box.appendChild(d); scrollDown();
 }
-function addAI(text, meta) {
+// 답변(대화·요약): 복사·내보내기·공유·소리내어 읽기·좋은/나쁜 답변·재시도
+function addAI(text, meta, chat) {
   const d = document.createElement('div');
   d.className = 'msg ai md';
   d.innerHTML = md(text) + (meta ? `<div class="meta">${esc(meta)}</div>` : '');
+  if (chat) {
+    d.dataset.chat = '1'; d._raw = text; d._meta = meta || '';
+    d.appendChild(actBar([['copy', '복사', '답변 복사'], ['export', '내보내기', '파일로 저장'], ['share', '공유', '다른 앱으로 공유'], ['speak', '🔊 읽기', '소리내어 읽기'], ['good', '👍', '좋은 답변'], ['bad', '👎', '나쁜 답변'], ['retry', '재시도', '다시 답변 받기']]));
+  }
   box.appendChild(d); scrollDown();
   return d;
 }
+function toastIn(el, t) {
+  let n = el.querySelector('.msg-toast'); if (!n) { n = document.createElement('div'); n.className = 'msg-toast muted small'; el.appendChild(n); }
+  n.textContent = t; clearTimeout(n._t); n._t = setTimeout(() => n.remove(), 2500);
+}
+function plainText(t) { return String(t || '').replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>|]/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'); }
+// 이 메시지(질문)부터 아래 메시지를 화면에서 지우고, 대화 기록도 그 앞까지만 남긴다
+async function cutFrom(userEl) {
+  const k = [...box.querySelectorAll('.msg.ai[data-chat]')].filter(a => userEl.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_PRECEDING).length;
+  let n = userEl;
+  while (n) { const nx = n.nextElementSibling; if (n.classList.contains('msg')) n.remove(); n = nx; }
+  await api.chat.truncate(k);
+}
+function userBefore(aiEl) { let n = aiEl.previousElementSibling; while (n && !n.classList.contains('user')) n = n.previousElementSibling; return n; }
+box.addEventListener('click', async e => {
+  const btn = e.target.closest('.msg-actions button'); if (!btn) return;
+  const msg = btn.closest('.msg'); const act = btn.dataset.act; const raw = msg._raw || '';
+  if (act === 'copy') { try { await api.copy(raw); toastIn(msg, '복사했습니다'); } catch (_) {} return; }
+  if (msg.classList.contains('user')) {
+    if (act === 'edit') { await cutFrom(msg); $('#input').value = raw; setMode('ask'); $('#input').focus(); return; }
+    if (act === 'retry') { const info = msg._info; await cutFrom(msg); sendMessage(info.kind === 'sum' ? '' : raw, info.kind === 'sum' ? { summarize: true } : { includePage: info.page }); return; }
+    return;
+  }
+  const u = userBefore(msg);
+  if (act === 'retry') { if (!u) return; const info = u._info, rawQ = u._raw; await cutFrom(u); sendMessage(info.kind === 'sum' ? '' : rawQ, info.kind === 'sum' ? { summarize: true } : { includePage: info.page }); return; }
+  if (act === 'export') {
+    const q = u ? u._raw : '';
+    const r = await api.chat.exportText(`Jeeves_답변_${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}.md`, `# 질문\n\n${q}\n\n# 답변\n\n${raw}\n\n---\n${msg._meta || ''}\n`);
+    toastIn(msg, r.ok ? '저장했습니다: ' + r.path : (r.canceled ? '취소했습니다' : '저장 실패: ' + (r.error || ''))); return;
+  }
+  if (act === 'share') {
+    try { if (navigator.share) { await navigator.share({ title: 'Jeeves 답변', text: raw }); return; } } catch (er) { if (er && er.name === 'AbortError') return; }
+    try { await api.copy(raw); toastIn(msg, '이 PC에서는 공유창을 열 수 없어 복사했습니다. 메신저·메일에 붙여넣어 공유하세요'); } catch (_) {} return;
+  }
+  if (act === 'speak') {
+    const ss = window.speechSynthesis; if (!ss) { toastIn(msg, '이 PC에서는 소리내어 읽기를 쓸 수 없습니다'); return; }
+    if (btn.dataset.on) { ss.cancel(); return; }
+    ss.cancel();
+    const ut = new SpeechSynthesisUtterance(plainText(raw)); ut.lang = 'ko-KR';
+    const v = ss.getVoices().find(x => /^ko/i.test(x.lang)); if (v) ut.voice = v; else toastIn(msg, '한국어 음성이 없어 기본 음성으로 읽습니다(Windows 설정 → 음성에서 추가)');
+    btn.dataset.on = '1'; btn.textContent = '■ 멈춤';
+    const done = () => { delete btn.dataset.on; btn.textContent = '🔊 읽기'; };
+    ut.onend = done; ut.onerror = done; ss.speak(ut); return;
+  }
+  if (act === 'good' || act === 'bad') {
+    const was = btn.classList.contains('on');
+    msg.querySelectorAll('[data-act="good"],[data-act="bad"]').forEach(b => b.classList.remove('on'));
+    if (!was) btn.classList.add('on');
+    await api.chat.feedback({ rating: was ? 'none' : act, model: msg._meta, grade: chatGrade, q: u ? u._raw : '', a: raw });
+    toastIn(msg, was ? '표시를 취소했습니다' : (act === 'good' ? '좋은 답변으로 표시했습니다(이 PC에만 저장)' : '나쁜 답변으로 표시했습니다(이 PC에만 저장)'));
+  }
+});
 function addErr(text) {
   const d = document.createElement('div');
   d.className = 'msg err';
@@ -292,18 +359,19 @@ async function sendMessage(textOverride, opts = {}) {
   }
   if (mode === 'act' && !isSummary) {
     const where = $('#where').value;
-    addUser(text, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`);
+    addUser(text, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act' });
     const r = await api.agent.start(text, where, chatGrade);
     if (r.error) { addErr(r.error); return; }
     ensureCard(r.id, { goal: text });
     return;
   }
-  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : ($('#include-page').checked ? '💬 대화 · 페이지 포함' : '💬 대화')) + ` · 🔒${chatGrade}`);
+  const usePage = opts.includePage !== undefined ? !!opts.includePage : $('#include-page').checked;
+  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : (usePage ? '💬 대화 · 페이지 포함' : '💬 대화')) + ` · 🔒${chatGrade}`, { kind: isSummary ? 'sum' : 'chat', page: usePage });
   const wait = document.createElement('div');
   wait.className = 'msg ai typing';
   box.appendChild(wait); scrollDown();
   $('#send').disabled = true;
-  const chatOpts = { includePage: $('#include-page').checked, mode: isSummary ? 'summarize' : 'chat', infoGrade: chatGrade, gradeAck };
+  const chatOpts = { includePage: usePage, mode: isSummary ? 'summarize' : 'chat', infoGrade: chatGrade, gradeAck };
   let res = await api.chat.send(text, chatOpts);
   if (res.needLive) {
     // 실시간 정보 질문: 질문 모드는 인터넷을 못 보므로 작업 모드(검색 가능)로 보낼지 묻는다
@@ -312,19 +380,19 @@ async function sendMessage(textOverride, opts = {}) {
     if (ch === 'act') {
       const goal = `구글에서 검색해서 확인하고 결과를 쉽게 정리해 줘: ${text}`;
       const where = $('#where').value;
-      addUser(goal, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`);
+      addUser(goal, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act' });
       const r = await api.agent.start(goal, where, chatGrade);
       if (r.error) addErr(r.error); else ensureCard(r.id, { goal });
       return;
     }
     if (ch === 'cancel') { $('#input').value = text; return; }
     // 'ask': 그래도 질문 모드로 → 아는 범위에서만 답함
-    addUser(text, '💬 대화 · 🔒' + chatGrade);
+    addUser(text, '💬 대화 · 🔒' + chatGrade, { kind: 'chat', page: false });
     const w2 = document.createElement('div'); w2.className = 'msg ai typing'; box.appendChild(w2); scrollDown();
     $('#send').disabled = true;
     const r2 = await api.chat.send(text, { ...chatOpts, liveAck: true });
     w2.remove(); $('#send').disabled = false;
-    if (r2.ok) addAI(r2.text, r2.model + (r2.costKrw != null ? ` · 약 ${r2.costKrw}원` : '')); else addErr(r2.error || '답변을 받지 못했습니다.');
+    if (r2.ok) addAI(r2.text, r2.model + (r2.costKrw != null ? ` · 약 ${r2.costKrw}원` : ''), true); else addErr(r2.error || '답변을 받지 못했습니다.');
     return;
   }
   if (res.needGrade) {
@@ -344,7 +412,7 @@ async function sendMessage(textOverride, opts = {}) {
   }
   wait.remove();
   $('#send').disabled = false;
-  if (res.ok) addAI(res.text, res.model + (res.costKrw != null ? ` · 약 ${res.costKrw}원` : '')); else addErr(res.error);
+  if (res.ok) addAI(res.text, res.model + (res.costKrw != null ? ` · 약 ${res.costKrw}원` : ''), true); else addErr(res.error);
 }
 $('#send').onclick = () => sendMessage();
 $('#input').addEventListener('keydown', e => {
