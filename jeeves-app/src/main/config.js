@@ -2,7 +2,7 @@
 // API 키는 Windows 자격 증명 보호(DPAPI) 기반 safeStorage 로 암호화해 저장한다.
 const fs = require('fs');
 const path = require('path');
-const { recommendAll } = require('../models/recommend');
+const { recommendAll, GRADES, effectiveMaxGrade } = require('../models/recommend');
 
 // ── 기본값 ────────────────────────────────────────────────
 // providers: AI 회사(접속 창구). type 이 같으면 같은 통신 방식을 쓴다.
@@ -29,9 +29,9 @@ const DEFAULTS = {
     openrouter: { type: 'openai', label: 'OpenRouter (여러 모델)', baseUrl: 'https://openrouter.ai/api/v1', apiKey: '', tier: 'paid' },
     openai: { type: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', apiKey: '', tier: 'paid' },
     // xAI Grok: 공식 문서에서 주소·모델명 확인(2026-10-09). 채팅 호환 경로는 "Legacy"로 표기돼 있어 연결 테스트로 확인 필요
-    xai: { type: 'openai', label: 'xAI Grok', baseUrl: 'https://api.x.ai/v1', apiKey: '', tier: 'paid' },
+    xai: { type: 'openai', label: 'xAI Grok', baseUrl: 'https://api.x.ai/v1', apiKey: '', tier: 'paid', maxGrade: 'P' },   // 학습 사용 여부 미확인 → 확인 전까지 공개(P)만
     // Zhipu GLM(Z.ai, 중국): 데이터 처리 정책 미확인 → 자동 추천에서는 제외하고 "직접" 선택으로만 쓴다
-    zai: { type: 'openai', label: 'Zhipu GLM (Z.ai)', baseUrl: 'https://api.z.ai/api/paas/v4', apiKey: '', tier: 'paid' },
+    zai: { type: 'openai', label: 'Zhipu GLM (Z.ai)', baseUrl: 'https://api.z.ai/api/paas/v4', apiKey: '', tier: 'paid', maxGrade: 'P' },
     ollama: { type: 'openai', label: 'Ollama (내 PC 로컬 모델)', baseUrl: 'http://127.0.0.1:11434/v1', apiKey: 'ollama', tier: 'free' }
   },
   removedProviders: [],   // 사용자가 지운 기본 공급자 id (다시 살아나지 않게 기록)
@@ -46,6 +46,7 @@ const DEFAULTS = {
     budgetKrw: 500,            // 작업 1건 예산(원). 넘으면 계속할지 묻는다
     viewport: { width: 1440, height: 900 }
   },
+  infoGrade: 'P',   // 지금 다루는 정보의 기본 등급(P 공개/I 내부/C 기밀/S 비밀). P면 제한 없음(기존 동작)
   ui: { homepage: 'https://www.google.com', krwPerUsd: 1400, layout: 'chat', previewWidth: 400, panelWidth: 420 }, // layout: 'chat' = 작업 화면 중심, 'web' = 웹 크게
   // 작업 엔진: 'api' = API 키(Claude·Jev 등, 사용량만큼 과금) / 'claude-code' = 내 PC 의 정품 Claude Code(내 구독)
   engine: { type: 'api', claudePath: '', claudeModel: 'sonnet' },
@@ -120,6 +121,7 @@ class ConfigStore {
     const c = JSON.parse(JSON.stringify(this.data));
     for (const p of Object.values(c.providers)) {
       p.hasKey = !!p.apiKey;
+      p.effectiveGrade = effectiveMaxGrade(p);
       p.apiKey = p.apiKey ? '••••••••' : '';   // 끝자리도 화면으로 보내지 않는다 (키 길이·일부 노출 방지)
     }
     c.recommend = recommendAll(this.data);     // 부문별 추천 배정 (화면 표시용)
@@ -136,6 +138,8 @@ class ConfigStore {
         if (typeof p.apiKey === 'string' && !(p.apiKey.startsWith('••••') || p.apiKey.startsWith('●'))) ok.apiKey = p.apiKey;   // 가린 값 그대로면 기존 키 유지
         if (typeof p.baseUrl === 'string') ok.baseUrl = p.baseUrl;
         if (p.tier === 'free' || p.tier === 'paid') ok.tier = p.tier;
+        if (p.maxGrade === 'auto' || p.maxGrade === '') ok.maxGrade = '';   // 자동(유형·로컬 여부로 계산)
+        else if (GRADES.includes(p.maxGrade)) ok.maxGrade = p.maxGrade;
         if (typeof p.off === 'boolean') ok.off = p.off;   // 추천에서 제외(잔액 없는 유료 공급자 등)
         patch.providers[id] = ok;
       }
@@ -150,6 +154,7 @@ class ConfigStore {
         patch.roles[id] = ok;
       }
     }
+    if (patch.infoGrade !== undefined && !GRADES.includes(patch.infoGrade)) delete patch.infoGrade;
     delete patch.removedProviders;   // 삭제 기록은 removeProvider() 로만 바꾼다
     this.data = deepMerge(this.data, patch);
     this.save();

@@ -24,10 +24,28 @@ const ORDER = Object.keys(CATALOG);
 const { priceOf } = require('./pricing');
 const cheapness = model => { const pr = priceOf(model); return pr ? pr.in + pr.out : Infinity; };   // 입력+출력 단가 합(작을수록 저렴)
 const isLocal = p => /127\.0\.0\.1|localhost/.test((p && p.baseUrl) || '');
-const usable = p => !!p && !p.disabled && !p.off && !!p.apiKey && p.apiKey !== 'ollama';
+// 정보 등급(낮은 민감도 → 높은 민감도): P 공개 < I 내부 < C 기밀(대외비) < S 비밀.
+// 공급자마다 "다룰 수 있는 가장 높은 등급"이 있고, 작업의 정보 등급이 그보다 높으면 그 공급자는 쓰지 않는다.
+// 자동 기본값: 내 PC 로컬 = S / 유료 = I / 무료 = P (무료 등급은 입력이 학습에 쓰일 수 있음). 사용자가 공급자별로 바꿀 수 있다.
+const GRADES = ['P', 'I', 'C', 'S'];
+const GRADE_INFO = {
+  P: { name: '공개', desc: '공개돼도 되는 정보. 무료 등급·외국계 서비스까지 모두 허용' },
+  I: { name: '내부', desc: '일반 업무 정보. 입력을 학습에 쓰지 않는 유료 서비스까지 허용' },
+  C: { name: '기밀(대외비)', desc: '거래처·계약·견적 등. 직접 \"C 허용\"으로 올려 둔 공급자와 내 PC 로컬만 허용' },
+  S: { name: '비밀', desc: '계정·키·미공개 기술·개인정보 등. 내 PC 로컬 모델만 허용' }
+};
+const gradeRank = g => Math.max(0, GRADES.indexOf(g));
+function effectiveMaxGrade(p) {
+  if (p && GRADES.includes(p.maxGrade)) return p.maxGrade;
+  if (isLocal(p)) return 'S';
+  return p && p.tier === 'free' ? 'P' : 'I';
+}
+const gradeOk = (p, grade) => gradeRank(effectiveMaxGrade(p)) >= gradeRank(grade);
+const usable = (p, grade) => !!p && !p.disabled && !p.off && gradeOk(p, grade || 'P') && !!p.apiKey && p.apiKey !== 'ollama';
 
 // cfg: 설정 원본(키 포함). 반환: { provider, model, tier, grade, reason } 또는 null(추천 불가)
-function recommendFor(cfg, role) {
+function recommendFor(cfg, role, infoGradeArg) {
+  const infoGrade = GRADES.includes(infoGradeArg) ? infoGradeArg : (GRADES.includes(cfg.infoGrade) ? cfg.infoGrade : 'P');
   const needs = NEED[role];
   if (!needs) return null;
   for (let i = 0; i < needs.length; i++) {
@@ -35,7 +53,7 @@ function recommendFor(cfg, role) {
     const cands = [];
     for (const [id, p] of Object.entries(cfg.providers || {})) {
       const model = CATALOG[id] && CATALOG[id][grade];
-      if (model && usable(p)) cands.push({ provider: id, model, tier: p.tier === 'free' ? 'free' : 'paid', local: isLocal(p) });
+      if (model && usable(p, infoGrade)) cands.push({ provider: id, model, tier: p.tier === 'free' ? 'free' : 'paid', local: isLocal(p) });
     }
     if (!cands.length) continue;
     // 무료 먼저, 같은 유형이면 단가가 싼 것, 단가가 같으면 목록 순서
@@ -43,6 +61,7 @@ function recommendFor(cfg, role) {
     const c = cands[0];
     const parts = [`${c.tier === 'free' ? '무료' : '유료'} · ${GRADE_LABEL[grade]} 등급`];
     if (i > 0) parts.push(`${GRADE_LABEL[needs[0]]} 등급을 쓸 수 있는 공급자 키가 없어 ${GRADE_LABEL[grade]} 등급으로 대신함`);
+    if (infoGrade !== 'P') parts.push(`정보 등급 ${infoGrade}(${GRADE_INFO[infoGrade].name})에 허용된 공급자만 고려`);
     parts.push(c.tier === 'free' ? '필요 등급을 채우는 것 중 무료 우선' : '필요 등급을 채우는 것 중 가장 저렴');
     return { provider: c.provider, model: c.model, tier: c.tier, grade, reason: parts.join(' · ') };
   }
@@ -63,4 +82,4 @@ function recommendEngine(claudeFound) {
     : { type: 'api', reason: 'Claude Code가 설치돼 있지 않아 API 키 방식으로 동작함' };
 }
 
-module.exports = { CATALOG, NEED, recommendFor, recommendAll, recommendEngine };
+module.exports = { CATALOG, NEED, GRADES, GRADE_INFO, effectiveMaxGrade, gradeOk, recommendFor, recommendAll, recommendEngine };

@@ -4,7 +4,7 @@ const { ModelRouter } = require('../src/models/router');
 const { toOpenAIMessages } = require('../src/models/providers');
 const { DEFAULTS, ConfigStore, parseKeyFile } = require('../src/main/config');
 const { costUsd } = require('../src/models/pricing');
-const { recommendFor, recommendAll, recommendEngine } = require('../src/models/recommend');
+const { recommendFor, recommendAll, recommendEngine, effectiveMaxGrade, gradeOk } = require('../src/models/recommend');
 const fs = require('fs'), os = require('os'), path = require('path');
 const { formatObservation, TOOLS } = require('../src/agent/agent');
 
@@ -323,6 +323,49 @@ function fakeFetch(handler) {
     assert.ok(Math.abs(costUsd('grok-4.7', { input: 1e6, output: 1e6 }) - 8) < 1e-9);
     assert.ok(Math.abs(costUsd('glm-5.3', { input: 1e6, output: 1e6 }) - 5.8) < 1e-9);
     assert.strictEqual(costUsd('glm-4.7-flash', { input: 1e6, output: 1e6 }), 0);
+  });
+
+  await t('정보 등급: 공급자 자동 허용 등급(로컬 S / 유료 I / 무료 P), 직접 지정 우선', () => {
+    const c = withKeys({ anthropic: 'k', gemini: 'k' });
+    assert.strictEqual(effectiveMaxGrade(c.providers.ollama), 'S');
+    assert.strictEqual(effectiveMaxGrade(c.providers.anthropic), 'I');
+    assert.strictEqual(effectiveMaxGrade(c.providers.gemini), 'P');
+    assert.strictEqual(effectiveMaxGrade(c.providers.zai), 'P');   // 중국계: 확인 전까지 공개만
+    c.providers.anthropic.maxGrade = 'C';
+    assert.strictEqual(effectiveMaxGrade(c.providers.anthropic), 'C');
+    assert.ok(gradeOk(c.providers.anthropic, 'C') && !gradeOk(c.providers.anthropic, 'S'));
+  });
+
+  await t('정보 등급: I 이상이면 무료 Gemini는 추천에서 빠지고 유료로 넘어감, S면 키 있는 외부 공급자 모두 제외', () => {
+    const c = withKeys({ anthropic: 'k', gemini: 'k' });
+    assert.strictEqual(recommendFor(c, 'chat').provider, 'gemini');                 // 기본 P: 기존 동작
+    c.infoGrade = 'I';
+    const r = recommendFor(c, 'chat');
+    assert.strictEqual(r.provider, 'anthropic');
+    assert.ok(r.reason.includes('정보 등급 I'));
+    c.infoGrade = 'S';
+    assert.strictEqual(recommendFor(c, 'chat'), null);
+  });
+
+  await t('정보 등급: 라우터가 등급에 맞지 않는 공급자(자동·직접)를 막고 한국어 오류를 냄', () => {
+    const c = withKeys({ gemini: 'k' });
+    c.infoGrade = 'I';
+    const router = new ModelRouter(() => c, async () => { throw new Error('호출되면 안 됨'); });
+    c.roles.chat.provider = 'gemini'; c.roles.chat.model = 'gemini-3.8-flash';   // 추천할 공급자가 없을 때의 저장 배정
+    assert.throws(() => router.resolve('chat'), /정보 등급 I.*쓸 수 없습니다/);
+    c.roles.chat.mode = 'manual'; c.roles.chat.provider = 'gemini'; c.roles.chat.model = 'gemini-3.8-flash';
+    assert.throws(() => router.resolve('chat'), /정보 등급 I/);
+    assert.doesNotThrow(() => router.resolve('chat', 'P'));   // 호출별로 등급을 낮춰 지정하면 허용
+  });
+
+  await t('정보 등급: 설정 저장은 올바른 등급 값만 받음', () => {
+    const cs = new ConfigStore(fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-')), null);
+    cs.update({ infoGrade: 'C', providers: { gemini: { maxGrade: 'I' } } });
+    assert.strictEqual(cs.data.infoGrade, 'C');
+    assert.strictEqual(cs.data.providers.gemini.maxGrade, 'I');
+    cs.update({ infoGrade: 'X', providers: { gemini: { maxGrade: 'auto' } } });
+    assert.strictEqual(cs.data.infoGrade, 'C');
+    assert.ok(!cs.data.providers.gemini.maxGrade);
   });
 
   await t('엔진 추천: Claude Code 설치 시 구독, 아니면 API', () => {

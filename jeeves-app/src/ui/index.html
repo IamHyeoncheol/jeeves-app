@@ -111,6 +111,8 @@
         <section>
           <h3>2. 부문별 모델 배정</h3>
           <p class="muted"><b>추천</b>: 키가 있는 공급자 중 부문에 필요한 등급을 채우는 가장 싼 모델(무료 우선)을 자동으로 고릅니다. <b>직접</b>: 공급자와 모델을 직접 고릅니다. 부문마다 [추천|직접]으로 바꿀 수 있습니다. 생각 깊이(effort)는 낮을수록 빠르고 저렴합니다(Claude 5 계열만 적용).</p>
+          <div class="row"><span>🔒 지금 다루는 정보 등급<br><small class="muted" id="grade-desc"></small></span>
+            <select id="info-grade"><option value="P">P 공개</option><option value="I">I 내부</option><option value="C">C 기밀(대외비)</option><option value="S">S 비밀</option></select></div>
           <div class="row"><span>모든 부문을 추천 배정으로<br><small class="muted">직접 고른 값은 지워지지 않고, 저장하면 추천이 적용됩니다.</small></span><button type="button" class="ghost" id="roles-all-auto">추천안으로 모두 맞추기</button></div>
           <div id="roles"></div>
           <datalist id="model-suggestions">

@@ -2,7 +2,7 @@
 // 호출마다 토큰 사용량과 비용(달러)을 계산해 돌려준다.
 const { ADAPTERS, ProviderError } = require('./providers');
 const { costUsd } = require('./pricing');
-const { recommendFor } = require('./recommend');
+const { recommendFor, GRADES, GRADE_INFO, gradeOk } = require('./recommend');
 
 class ModelRouter {
   constructor(getConfig, fetchImpl) {
@@ -11,18 +11,21 @@ class ModelRouter {
     this.usage = {}; // 부문별 누적: { calls, input, output, cacheRead, cacheWrite, usd, unknownCost }
   }
 
-  resolve(role) {
+  resolve(role, gradeOverride) {
     const cfg = this.getConfig();
+    const grade = GRADES.includes(gradeOverride) ? gradeOverride : (GRADES.includes(cfg.infoGrade) ? cfg.infoGrade : 'P');
     let r = cfg.roles[role];
     if (!r) throw new ProviderError(`'${role}' 부문 설정이 없습니다.`);
     // 추천 모드: 키가 있는 공급자 중 필요 등급을 채우는 가장 싼 것(무료 우선)을 그때그때 고른다. 추천할 게 없으면 저장된 배정을 쓴다.
     if (r.mode === 'auto') {
-      const rec = recommendFor(cfg, role);
+      const rec = recommendFor(cfg, role, grade);
       if (rec) r = { ...r, provider: rec.provider, model: rec.model, effort: rec.provider === 'anthropic' ? r.effort : '' };
     }
     const p = cfg.providers[r.provider];
     if (!p) throw new ProviderError(`'${r.label}' 부문에 배정된 공급자(${r.provider})를 찾을 수 없습니다.`);
     if (p.disabled) throw new ProviderError(`'${p.label}' 공급자는 아직 사용할 수 없습니다.`);
+    // 정보 등급 관문: 이 공급자가 다룰 수 없는 등급이면 자동·직접 배정 모두 막는다(코드가 판정)
+    if (!gradeOk(p, grade)) throw new ProviderError(`정보 등급 ${grade}(${GRADE_INFO[grade].name})에는 '${p.label}'을(를) 쓸 수 없습니다. 설정에서 이 공급자의 허용 등급을 바꾸거나, 허용된 공급자를 배정해 주세요.`);
     const local = /127\.0\.0\.1|localhost/.test(p.baseUrl);
     if (!p.apiKey && !local) throw new ProviderError(`${p.label} API 키가 없습니다. 설정(⚙)에서 입력해 주세요.`);
     const adapter = ADAPTERS[p.type];
@@ -46,7 +49,7 @@ class ModelRouter {
   }
 
   async call(role, req) {
-    const { roleCfg, provider, adapter } = this.resolve(role);
+    const { roleCfg, provider, adapter } = this.resolve(role, req && req.infoGrade);
     const full = { effort: roleCfg.effort || undefined, ...req };
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {

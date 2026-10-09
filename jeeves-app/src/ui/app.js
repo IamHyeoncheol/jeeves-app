@@ -389,6 +389,13 @@ function syncEngineBadge() {
 api.config.onUpdate(c => { cfg = c; syncEngineBadge(); });
 // ── 설정 화면: 공급자 목록 / 부문 배정 ───────────────────────────
 const isLocalUrl = u => /127\.0\.0\.1|localhost/.test(u || '');
+const GRADE_TXT = { P: '공개', I: '내부', C: '기밀(대외비)', S: '비밀' };
+const GRADE_DESC = { P: '공개돼도 되는 정보 — 무료·외국계 서비스까지 모두 사용', I: '일반 업무 정보 — 입력을 학습에 쓰지 않는 유료 서비스까지 사용', C: '거래처·계약·견적 — 직접 "C 허용"으로 올린 공급자와 내 PC 로컬만 사용', S: '계정·키·미공개 기술·개인정보 — 내 PC 로컬 모델만 사용' };
+function gradeOpts(p) {
+  const cur = ['P', 'I', 'C', 'S'].includes(p.maxGrade) ? p.maxGrade : 'auto';
+  const opt = (v, t) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${t}</option>`;
+  return opt('auto', `허용 자동(${p.effectiveGrade || '?'})`) + ['P', 'I', 'C', 'S'].map(g => opt(g, `허용 ${g}`)).join('');
+}
 function renderProviders() {
   const entries = Object.entries(cfg.providers);
   $('#providers').innerHTML = entries.map(([id, p]) => {
@@ -406,6 +413,7 @@ function renderProviders() {
       <div class="nm">${esc(p.label)}${p.disabled ? '' : `<label class="offline" title="체크하면 '추천'이 이 공급자를 고르지 않습니다. 크레딧(잔액)이 없는 유료 공급자에 쓰세요. 직접 고른 부문에는 영향 없음."><input type="checkbox" data-k="off" ${p.off ? 'checked' : ''}> 추천에서 제외</label>`}</div>
       ${keyInput}
       <input data-k="baseUrl" placeholder="주소" value="${esc(p.baseUrl)}" title="접속 주소(보통 바꿀 필요 없음)" ${p.disabled ? 'disabled' : ''}>
+      <select data-k="maxGrade" title="이 공급자가 다룰 수 있는 가장 높은 정보 등급. 자동 = 내 PC 로컬 S / 유료 I / 무료 P">${gradeOpts(p)}</select>
       <select data-k="tier" title="요금 유형: 무료는 비용 0원으로 계산·추천에서 우선, 유료는 단가표로 계산"><option value="free" ${tier === 'free' ? 'selected' : ''}>무료</option><option value="paid" ${tier === 'paid' ? 'selected' : ''}>유료</option></select>
       <button type="button" class="ghost" data-del="${esc(id)}" title="이 공급자를 목록에서 삭제합니다 (저장된 키도 함께 지워짐)">삭제</button>
     </div>`;
@@ -459,7 +467,7 @@ function renderRoles() {
       const recLabel = rec && cfg.providers[rec.provider] ? `${cfg.providers[rec.provider].label} · ${rec.model}` : '';
       const line = row.querySelector('.recline');
       line.textContent = auto
-        ? (rec ? `추천: ${recLabel} — ${rec.reason}` : '추천할 수 있는 공급자가 없습니다(키가 있는 공급자 없음). 아래 값으로 동작하며 "직접"으로 바꿀 수 있습니다.')
+        ? (rec ? `추천: ${recLabel} — ${rec.reason}` : `추천할 수 있는 공급자가 없습니다(키가 있는 공급자가 없거나, 정보 등급 ${cfg.infoGrade || 'P'}에 허용된 공급자가 없음). 아래 값으로 동작하며 "직접"으로 바꿀 수 있습니다.`)
         : (rec ? `직접 선택 중입니다. (추천은 ${recLabel})` : '직접 선택 중입니다.');
       const pp = cfg.providers[sel.value];
       if (pp && pp.tier === 'free' && !isLocalUrl(pp.baseUrl)) line.textContent += ' ⚠ 무료 등급: 입력이 학습에 쓰일 수 있으니(Gemini 무료는 공식 확인) 민감한 자료는 넣지 마세요.';
@@ -482,6 +490,8 @@ async function openSettings(msg) {
   settingsOpen = true;
   api.layout.hideWeb(true);
   $('#settings').classList.remove('hidden');
+  $('#info-grade').value = cfg.infoGrade || 'P';
+  $('#grade-desc').textContent = GRADE_DESC[cfg.infoGrade || 'P'];
   renderProviders();
   renderRoles();
   const a = cfg.agent;
@@ -510,6 +520,7 @@ async function saveSettings(quiet) {
     // 저장된 키를 건드리지 않았으면 가려진 표시값 대신 '기존 키 유지' 신호(••••••••)를 보낸다
     const keyVal = keyEl.dataset.shown && keyEl.value.trim() === keyEl.dataset.shown ? keyEl.dataset.orig : keyEl.value.trim();
     patch.providers[id] = { apiKey: keyVal, baseUrl: row.querySelector('[data-k=baseUrl]').value.trim(), tier: row.querySelector('[data-k=tier]').value };
+    patch.providers[id].maxGrade = row.querySelector('[data-k=maxGrade]').value;
     const offEl = row.querySelector('[data-k=off]'); if (offEl) patch.providers[id].off = offEl.checked;
   });
   $$('#roles .role').forEach(row => {
@@ -526,6 +537,7 @@ async function saveSettings(quiet) {
     confirmMode: $('#confirm-mode').value, maxSteps: num($('#max-steps').value, 5, 100, 30)
   };
   patch.engine = { type: $('#engine-type').value, claudePath: $('#cc-path').value.trim(), claudeModel: $('#cc-model').value };
+  patch.infoGrade = $('#info-grade').value;
   patch.ui = { homepage: $('#homepage').value.trim() || 'https://www.google.com', krwPerUsd: num($('#krw-rate').value, 500, 5000, 1400) };
   cfg = await api.config.update(patch);
   if (!quiet) { renderProviders(); renderRoles(); $('#save-msg').textContent = '저장했습니다.'; setTimeout(() => { $('#save-msg').textContent = ''; }, 2000); }
@@ -546,6 +558,7 @@ $('#restore-providers').onclick = async () => {
   const r = await api.config.restoreProviders();
   if (r.ok) { cfg = r.config; renderProviders(); renderRoles(); $('#save-msg').textContent = '삭제했던 기본 공급자를 복원했습니다(키는 다시 입력해야 합니다).'; }
 };
+$('#info-grade').onchange = async () => { $('#grade-desc').textContent = GRADE_DESC[$('#info-grade').value]; await saveSettings(true); renderProviders(); renderRoles(); };
 $('#roles-all-auto').onclick = () => { $$('#roles .role').forEach(row => { row.dataset.mode = 'auto'; row._apply && row._apply(); }); $('#save-msg').textContent = '저장하면 모든 부문이 추천 배정으로 바뀝니다.'; };
 $('#open-settings').onclick = () => openSettings();
 async function refreshMcp() {
