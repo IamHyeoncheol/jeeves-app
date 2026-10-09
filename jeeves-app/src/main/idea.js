@@ -25,13 +25,35 @@ function ideaCheck(text) {
 function frame(question) {
   return `다음 주제에 대해, 서로 다른 분야에서 쓰이는 원리를 가져와 적용할 수 있는 접근을 5~10가지 제안해 주세요.
 각 접근마다 이 항목을 쓰세요: 원래 분야 / 핵심 원리 / 적용 방법 / 한계 / 확인용 영어 검색어 2~3개.
-논문 제목·저자·DOI·수치는 쓰지 마세요. 모르는 것은 지어내지 말고 "확인 불가"라고 쓰세요. 한국어로 쉽게 설명해 주세요.
+형식: 각 접근은 "1. 접근 이름"으로 시작하고, 항목은 "라벨: 내용"을 한 줄씩 쓰고, 마지막에 "결론" 한 줄 제목 뒤에 2~3문장으로 정리하세요.\n논문 제목·저자·DOI·수치는 쓰지 마세요. 모르는 것은 지어내지 말고 "확인 불가"라고 쓰세요. 한국어로 쉽게 설명해 주세요.
 
 [주제]
 ${String(question || '').trim()}`;
 }
 
+// 웹 화면에서 읽어 온 답은 굵은 글씨·목록 표시가 사라진 "글자만"이다. 규칙(AI 아님)으로 제목·소제목·개조식 목록으로 다시 세운다.
+// 이미 마크다운 표시(#, -, *, |)가 있으면 손대지 않는다. 패턴: "1. 제목" → 소제목 / "라벨: 내용" → 굵은 라벨 항목 / "라벨:" 만 있는 줄 → 아래 줄들을 하위 항목으로 / 짧은 한 줄(예: 결론) → 큰 제목
+function structure(text, question) {
+  const src = String(text || '').replace(/\r/g, '').trim();
+  if (!src || /^\s*(#{1,4}\s|[-*]\s|\|)/m.test(src)) return src;
+  const topic = String(question || '').replace(/\s+/g, ' ').trim().slice(0, 50);
+  const out = ['## 💡 아이디어 후보' + (topic ? ' — ' + topic : '')];
+  let sec = false, sub = false;
+  for (const raw of src.split('\n')) {
+    const ln = raw.trim();
+    if (!ln) { out.push(''); continue; }
+    let m;
+    if ((m = ln.match(/^(\d{1,2})[.)]\s+(.+)/))) { sec = true; sub = false; out.push('', `### ${m[1]}. ${m[2]}`); continue; }
+    if (sec && ln.length <= 14 && !/[.:：。!?]$/.test(ln) && !/\s.*\s.*\s/.test(ln)) { sec = false; sub = false; out.push('', `## ${ln}`); continue; }   // "결론" 같은 짧은 제목 줄
+    if (sec && (m = ln.match(/^([^:：.]{1,40})[:：]\s*$/))) { sub = true; out.push(`- **${m[1].trim()}**`); continue; }
+    if (sec && (m = ln.match(/^([^:：.]{1,40})[:：]\s+(\S.*)/))) { out.push(`${sub ? '  ' : ''}- **${m[1].trim()}:** ${m[2]}`); continue; }
+    if (sec && sub) { out.push('  - ' + ln); continue; }
+    out.push(ln);
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+
 const BANNER = '⚠️ ExoLobe 답변 — 아이디어 후보입니다. 사실·수치는 검증되지 않았으니 영어 검색어로 확인한 뒤 사용하세요.';
 const withBanner = answer => `${BANNER}\n\n${String(answer || '').trim()}`;
 
-module.exports = { ideaCheck, frame, withBanner, BANNER, MAX_LEN };
+module.exports = { structure, ideaCheck, frame, withBanner, BANNER, MAX_LEN };

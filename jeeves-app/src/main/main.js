@@ -14,7 +14,7 @@ const { checkFolder, findBinary, snapshotDir } = require('./dev-engine');
 const { runChain } = require('./dev-chain');
 const { detectLocalModels, buildJuniorEngines } = require('../dev/local-ai');
 const { runTeam } = require('./dev-team');
-const { ideaCheck, frame: ideaFrame, withBanner: ideaBanner } = require('./idea');
+const { ideaCheck, frame: ideaFrame, withBanner: ideaBanner, structure: ideaStructure } = require('./idea');
 const { setWebChatHost } = require('../models/webchat');
 const { needsLiveInfo, GRADES, GRADE_INFO, gradeRank, engineGradeOk, engineMaxGrade, suspectDetail, recommendFor } = require('../models/recommend');
 
@@ -194,7 +194,7 @@ async function ideaSend({ text, projectId }) {
   let res;
   try { res = await router.call('idea', { system: '', messages: [{ role: 'user', content: [{ type: 'text', text: ideaFrame(q) }] }], maxTokens: 4096, infoGrade: 'P', noFailover: true }); }
   catch (e) { return { ok: false, error: e.message }; }
-  const answer = ideaBanner(res.content.filter(b => b.type === 'text').map(b => b.text).join('\n'));
+  const answer = ideaBanner(ideaStructure(res.content.filter(b => b.type === 'text').map(b => b.text).join('\n'), q));
   const meta = `💡 아이디어 · ${res.model} · 아이디어 후보`;
   let convId = null, title = '';
   try {

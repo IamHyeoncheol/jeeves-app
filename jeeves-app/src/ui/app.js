@@ -25,22 +25,32 @@ function inline(s) {
 }
 function md(text) {
   const lines = esc(text || '').split('\n');
-  let html = '', list = null, table = [];
+  let html = '', stack = [], table = [];
   const flushTable = () => {
     if (!table.length) return;
     const rows = table.filter(r => !/^\|?\s*:?-{2,}/.test(r));
     html += '<table>' + rows.map((r, i) => '<tr>' + r.replace(/^\||\|$/g, '').split('|').map(c => i === 0 ? `<th>${inline(c.trim())}</th>` : `<td>${inline(c.trim())}</td>`).join('') + '</tr>').join('') + '</table>';
     table = [];
   };
-  const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
+  const closeList = () => { while (stack.length) { const s = stack.pop(); html += `</li></${s.type}>`; } };
+  // 목록 항목: 들여쓴 정도가 깊으면 하위 목록, 얕으면 위로 되돌아감
+  const item = (type, n, content, num) => {
+    let popped = false;
+    while (stack.length && stack[stack.length - 1].indent > n) { const s = stack.pop(); html += `</li></${s.type}>`; popped = true; }
+    const top = stack[stack.length - 1];
+    if (top && (popped || top.indent === n)) { if (top.type === type) html += '</li>'; else { html += `</li></${top.type}>` + (type === 'ol' && num > 1 ? `<ol start="${num}">` : `<${type}>`); top.type = type; } }
+    else { html += type === 'ol' && num > 1 ? `<ol start="${num}">` : `<${type}>`; stack.push({ type, indent: n }); }
+    html += `<li>${inline(content)}`;
+  };
   for (const ln of lines) {
     if (/^\s*\|.*\|\s*$/.test(ln)) { closeList(); table.push(ln.trim()); continue; }
     flushTable();
     let m;
-    if ((m = ln.match(/^#{1,4}\s+(.*)/))) { closeList(); html += `<h3>${inline(m[1])}</h3>`; }
-    else if ((m = ln.match(/^\s*[-*•]\s+(.*)/))) { if (list !== 'ul') { closeList(); html += '<ul>'; list = 'ul'; } html += `<li>${inline(m[1])}</li>`; }
-    else if ((m = ln.match(/^\s*\d+[.)]\s+(.*)/))) { if (list !== 'ol') { closeList(); html += '<ol>'; list = 'ol'; } html += `<li>${inline(m[1])}</li>`; }
-    else if (!ln.trim()) { closeList(); }
+    if ((m = ln.match(/^(#{1,4})\s+(.*)/))) { closeList(); html += `<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`; }
+    else if (/^\s*([-*_])\1{2,}\s*$/.test(ln)) { closeList(); html += '<hr>'; }
+    else if ((m = ln.match(/^(\s*)[-*•]\s+(.*)/))) item('ul', m[1].length, m[2]);
+    else if ((m = ln.match(/^(\s*)(\d+)[.)]\s+(.*)/))) item('ol', m[1].length, m[3], Number(m[2]));
+    else if (!ln.trim()) { /* 빈 줄: 목록은 다음 줄에서 이어 판단 */ }
     else { closeList(); html += `<p>${inline(ln)}</p>`; }
   }
   flushTable(); closeList();

@@ -1,6 +1,11 @@
 // 💡 아이디어 모드 시험: 공개 정보 검사, 질문 틀, 안내 문구, 부문 규칙(웹 로그인형은 아이디어 부문 전용·자동 전환 없음)
 const assert = require('assert');
-const { ideaCheck, frame, withBanner, MAX_LEN } = require('../src/main/idea');
+const { ideaCheck, frame, withBanner, structure, MAX_LEN } = require('../src/main/idea');
+const fs = require('fs');
+// 화면의 마크다운 변환 함수만 꺼내 시험(app.js 는 화면 코드라 통째로 불러올 수 없음)
+const appSrc = fs.readFileSync(require('path').join(__dirname, '../src/ui/app.js'), 'utf8');
+const md = new Function(appSrc.slice(appSrc.indexOf('function esc'), appSrc.indexOf("document.addEventListener('click', e => {\n  const a = e.target.closest('a[data-link]')")) + ';return md;')();
+const SAMPLE = '소개 문장입니다.\n\n1. 진공 건조 (Vacuum)\n원리: 압력을 낮춥니다.\n다른 분야에서의 활용:\n회전 증발기: 용매를 뺍니다.\n동결 건조: 의약품에 씁니다.\n2. 표면적 늘리기\n원리: 얇게 썹니다.\n결론\n두 가지를 함께 씁니다.';
 const { ModelRouter } = require('../src/models/router');
 const results = [];
 const t = async (name, fn) => { try { await fn(); results.push([true, name]); } catch (e) { results.push([false, name, e.message]); } };
@@ -42,6 +47,25 @@ const cfgOf = (over = {}) => ({
     const c = cfgOf(); c.roles.idea.mode = 'auto';
     const r = new ModelRouter(() => c, async () => { throw new Error('no'); });
     assert.strictEqual(r.resolve('idea', 'P').id, 'exolobe-web');
+  });
+  await t('구조화: 번호 줄은 소제목, 라벨은 굵은 항목, 콜론만 있는 줄 아래는 하위 항목, 결론은 큰 제목', () => {
+    const o = structure(SAMPLE, '건조 원리');
+    assert.ok(o.startsWith('## 💡 아이디어 후보 — 건조 원리'));
+    assert.ok(o.includes('### 1. 진공 건조 (Vacuum)') && o.includes('### 2. 표면적 늘리기'));
+    assert.ok(o.includes('- **원리:** 압력을 낮춥니다.'));
+    assert.ok(o.includes('- **다른 분야에서의 활용**\n  - **회전 증발기:** 용매를 뺍니다.'));
+    assert.ok(o.includes('## 결론\n두 가지를 함께 씁니다.'));
+  });
+  await t('구조화: 이미 마크다운이면 그대로', () => { const x = '## 제목\n- 항목'; assert.strictEqual(structure(x, 'q'), x); });
+  await t('화면 변환: 제목 단계·중첩 목록·번호 시작값', () => {
+    const h = md('## 큰\n### 작은\n- 가\n  - 나\n- 다\n\n3. 셋');
+    assert.ok(h.includes('<h2>큰</h2>') && h.includes('<h3>작은</h3>'));
+    assert.ok(h.includes('<li>가<ul><li>나</li></ul></li><li>다</li></ul>'));
+    assert.ok(h.includes('<ol start="3">'));
+  });
+  await t('화면 변환: 구조화한 답이 제목·소제목·중첩 목록 HTML 이 됨', () => {
+    const h = md(structure(SAMPLE, 'q'));
+    assert.ok(h.startsWith('<h2>') && h.includes('<h3>1. 진공 건조') && h.includes('<ul><li><b>원리:</b>') && h.includes('<h2>결론</h2>'));
   });
   const bad = results.filter(r => !r[0]);
   results.forEach(r => console.log((r[0] ? 'PASS ' : 'FAIL ') + r[1] + (r[2] ? ' — ' + r[2] : '')));
