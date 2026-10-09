@@ -20,6 +20,11 @@ class ModelRouter {
     if (r.mode === 'auto') {
       const rec = recommendFor(cfg, role, grade);
       if (rec) r = { ...r, provider: rec.provider, model: rec.model, effort: rec.provider === 'anthropic' ? r.effort : '' };
+      else {
+        // 추천할 곳이 없을 때 저장된 배정으로 대신하되, 사용자가 "추천에서 제외"한 공급자(잔액 없음 등)로는 가지 않는다
+        const sp = cfg.providers[r.provider];
+        if (sp && sp.off) throw new ProviderError(`지금 쓸 수 있는 공급자가 없습니다. 정보 등급 ${grade}(${GRADE_INFO[grade].name})를 처리할 수 있고 키가 있는 공급자가 없고, '${sp.label}'은(는) 추천에서 제외돼 있습니다. 해결: ① 공개 정보라면 설정의 시작 등급을 P로(무료 Gemini 사용 가능) ② Gemini가 유료 계정이면 설정에서 Gemini 허용 등급을 I로 ③ OpenAI 등 유료 키 추가 ④ '${sp.label}' 충전 후 "추천에서 제외" 해제`);
+      }
     }
     const p = cfg.providers[r.provider];
     if (!p) throw new ProviderError(`'${r.label}' 부문에 배정된 공급자(${r.provider})를 찾을 수 없습니다.`);

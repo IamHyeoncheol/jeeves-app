@@ -53,7 +53,7 @@ const engineGradeOk = (cfg, grade) => grade !== 'S' && gradeRank(engineMaxGrade(
 // 입력 글에 기밀·비밀로 볼 만한 말이 있는지 단순 규칙으로 살핀다(AI 아님, 정확하지 않음 — 실수 방지용 경고만).
 // 반환: 제안 등급('C' 또는 'S') 또는 null. 등급을 자동으로 바꾸지는 않는다.
 const SUSPECT_S = /(비밀번호|패스워드|password|api[\s_-]?key|시크릿|secret|토큰|token|주민(등록)?번호|계좌\s?번호|카드\s?번호|인증서|미공개\s?(기술|특허)|\b\d{6}-?[1-4]\d{6}\b|sk-[\w-]{20,})/i;
-const SUSPECT_C = /(대외비|기밀|confidential|계약서?|견적|단가|납품|거래처|고객(명|사)|급여|연봉|투자\s?(유치|계약)|NDA|비공개)/i;
+const SUSPECT_C = /(01[016789]-?\d{3,4}-?\d{4}|[\w.+-]+@[\w-]+\.[\w.]+|전화번호|연락처|대외비|기밀|confidential|계약서?|견적|단가|납품|거래처|고객(명|사)|급여|연봉|투자\s?(유치|계약)|NDA|비공개)/i;
 function suspectGrade(text) {
   const t = String(text || '');
   if (SUSPECT_S.test(t)) return 'S';
@@ -70,7 +70,7 @@ function suspectDetail(text) {
       const g = new RegExp(re.source, 'gi');
       let m;
       while ((m = g.exec(t)) && hits.length < 5) {
-        const w = /^(sk-|\d{6})/.test(m[0]) ? '(키·번호 형태의 값)' : m[0];
+        const w = /^01[016789]/.test(m[0]) ? '(전화번호 형태)' : /@/.test(m[0]) ? '(이메일 주소)' : /^(sk-|\d{6})/.test(m[0]) ? '(키·번호 형태의 값)' : m[0];
         if (!hits.includes(w)) hits.push(w);
         if (m[0].length === 0) g.lastIndex++;
       }

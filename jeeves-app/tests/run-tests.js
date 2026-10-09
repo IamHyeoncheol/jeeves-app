@@ -535,6 +535,20 @@ function fakeFetch(handler) {
     assert.deepStrictEqual(suspectDetail('오늘 날씨'), { grade: null, hits: [] });
   });
 
+  await t('자동 배정: 추천할 공급자가 없을 때 "추천에서 제외"한 공급자로는 가지 않고 해결 방법을 안내', () => {
+    const c = withKeys({ anthropic: 'k', gemini: 'k' });
+    c.infoGrade = 'I'; c.providers.anthropic.off = true;           // 잔액 없는 Anthropic 제외 + Gemini 무료는 P까지
+    const router = new ModelRouter(() => c, async () => { throw new Error('호출되면 안 됨'); });
+    assert.throws(() => router.resolve('chat'), /지금 쓸 수 있는 공급자가 없습니다.*시작 등급을 P/);
+    assert.doesNotThrow(() => router.resolve('chat', 'P'));        // P 로 낮추면 무료 Gemini 사용
+  });
+
+  await t('민감어: 전화번호·이메일은 C 로 경고', () => {
+    assert.strictEqual(suspectGrade('01027561900'), 'C');
+    assert.strictEqual(suspectGrade('010-1234-5678 누구야'), 'C');
+    assert.strictEqual(suspectGrade('a.b@example.com 확인'), 'C');
+  });
+
   let fail = 0;
   for (const [ok, name, err] of results) { if (!ok) fail++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : '  → ' + err}`); }
   console.log(`\n${results.length - fail}/${results.length} 통과`);
