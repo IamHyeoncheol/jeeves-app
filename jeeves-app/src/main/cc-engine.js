@@ -79,12 +79,12 @@ function isLoginText(text) {
   return /(not logged in|please run \/login|login required|invalid api key|authentication|로그인)/i.test(String(text || ''));
 }
 
-// 질문·요약(대화)을 구독 엔진으로 처리: 도구 없이 글만 주고받는다.
+// 대화(Chat)·요약을 구독 엔진으로 처리: 기본은 글만 주고받고, web=true 면 읽기 전용 웹 검색·페이지 읽기(WebSearch, WebFetch)만 허용한다(일반 AI 도구처럼).
 // - 이미 검증된 옵션만 쓴다(-p, stream-json, --verbose, --permission-mode dontAsk, --allowedTools ToolSearch, --append-system-prompt-file, --model).
 //   허용 도구가 없는 dontAsk 모드라 파일 편집·명령 실행·웹 조작은 모두 거부된다.
 // - Claude 로그인 정보는 읽지 않는다(정품 Claude Code 가 자기 로그인으로 처리).
 // 반환: { text, costUsd } / 실패 시 Error(한국어 안내, .kind = 'limit' | 'login' | 'error', .resumeAt)
-function runClaudeChat({ bin, model, system, prompt, workDir, timeoutMs = 180000 }) {
+function runClaudeChat({ bin, model, system, prompt, workDir, web = false, timeoutMs = 180000 }) {
   return new Promise((resolve, reject) => {
     const fail = (kind, msg, extra) => { const e = new Error(msg); e.kind = kind; Object.assign(e, extra || {}); reject(e); };
     let rulesFile;
@@ -93,7 +93,7 @@ function runClaudeChat({ bin, model, system, prompt, workDir, timeoutMs = 180000
       rulesFile = path.join(workDir, 'jeeves-chat-rules.txt');
       fs.writeFileSync(rulesFile, system || '', 'utf8');
     } catch (e) { return fail('error', '작업 폴더를 준비하지 못했습니다: ' + e.message); }
-    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'dontAsk', '--allowedTools', 'ToolSearch', '--append-system-prompt-file', rulesFile];
+    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'dontAsk', '--allowedTools', web ? 'ToolSearch,WebSearch,WebFetch' : 'ToolSearch', '--append-system-prompt-file', rulesFile];
     if (model) args.push('--model', model);
     const shell = /\.(cmd|bat)$/i.test(bin);
     let child;

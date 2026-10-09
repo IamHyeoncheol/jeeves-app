@@ -568,6 +568,10 @@ function fakeFetch(handler) {
     assert.ok(!call.args.includes('--mcp-config'));
     assert.strictEqual(call.args[call.args.indexOf('--permission-mode') + 1], 'dontAsk');
     assert.strictEqual(call.args[call.args.indexOf('--model') + 1], 'haiku');
+    await runClaudeChat({ bin, system: '규칙', prompt: '날씨', workDir: dir, web: true });
+    const call2 = JSON.parse(fs.readFileSync(process.env.FAKE_LOG, 'utf8').trim().split('\n').pop());
+    assert.strictEqual(call2.args[call2.args.indexOf('--allowedTools') + 1], 'ToolSearch,WebSearch,WebFetch');   // 대화 모드: 읽기 전용 웹 검색·읽기만 추가
+    assert.ok(!/Bash|Edit|Write|mcp__/.test(call2.args[call2.args.indexOf('--allowedTools') + 1]));
     process.env.FAKE_MODE = 'limit';
     await assert.rejects(() => runClaudeChat({ bin, system: '', prompt: 'x', workDir: dir }), e => e.kind === 'limit' && /한도/.test(e.message));
     process.env.FAKE_MODE = 'login';

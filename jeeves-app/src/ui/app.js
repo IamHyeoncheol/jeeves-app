@@ -210,7 +210,7 @@ function setMode(m) {
   document.body.classList.toggle('mode-ask', m === 'ask');
   document.body.classList.toggle('mode-act', m === 'act');
   $$('#mode button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-  $('#input').placeholder = m === 'ask' ? '질문을 입력하세요 (Enter 보내기, Shift+Enter 줄바꿈)' : '시킬 일을 구체적으로 적어 주세요. 예) 네이버에서 가양역 근처 회의실 대여 3곳 찾아서 가격 비교';
+  $('#input').placeholder = m === 'ask' ? '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)' : '시킬 일을 구체적으로 적어 주세요. 예) 네이버에서 가양역 근처 회의실 대여 3곳 찾아서 가격 비교';
 }
 $$('#mode button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
 setMode('ask');
@@ -244,11 +244,11 @@ function askLive() {
   return new Promise(resolve => {
     const card = document.createElement('div');
     card.className = 'msg ai gradewarn';
-    card.innerHTML = '<b>🌐 인터넷 검색이 필요한 질문입니다</b><br>질문 모드의 AI는 인터넷을 볼 수 없어 날씨·시세·최신 뉴스는 답하지 못합니다. <b>작업 모드</b>(구글 검색)로 보내면 직접 찾아 드립니다.<div class="gw-btns"></div>';
+    card.innerHTML = '<b>🌐 인터넷 검색이 필요한 질문입니다</b><br>지금 대화 방식(API 키)에서는 인터넷을 볼 수 없어 날씨·시세·최신 뉴스는 답하지 못합니다. <b>작업 모드</b>(구글 검색)로 보내면 직접 찾아 드립니다.<div class="gw-btns"></div>';
     const row = card.querySelector('.gw-btns');
     const mk = (label, cls, val) => { const b = document.createElement('button'); b.textContent = label; b.className = cls; b.onclick = () => { card.querySelectorAll('button').forEach(x => x.disabled = true); card.insertAdjacentHTML('beforeend', `<div class="muted small">선택: ${esc(label)}</div>`); resolve(val); }; row.appendChild(b); };
     mk('작업 모드로 검색 (추천)', 'primary', 'act');
-    mk('그래도 질문으로', 'ghost', 'ask');
+    mk('그래도 대화로', 'ghost', 'ask');
     mk('취소', 'ghost', 'cancel');
     box.appendChild(card); scrollDown();
   });
@@ -292,13 +292,13 @@ async function sendMessage(textOverride, opts = {}) {
   }
   if (mode === 'act' && !isSummary) {
     const where = $('#where').value;
-    addUser(text, (where === 'current' ? '🤖 작업 · 지금 탭' : '🤖 작업 · 백그라운드 탭') + ` · 🔒${chatGrade}`);
+    addUser(text, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`);
     const r = await api.agent.start(text, where, chatGrade);
     if (r.error) { addErr(r.error); return; }
     ensureCard(r.id, { goal: text });
     return;
   }
-  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : ($('#include-page').checked ? '💬 질문 · 페이지 포함' : '💬 질문')) + ` · 🔒${chatGrade}`);
+  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : ($('#include-page').checked ? '💬 대화 · 페이지 포함' : '💬 대화')) + ` · 🔒${chatGrade}`);
   const wait = document.createElement('div');
   wait.className = 'msg ai typing';
   box.appendChild(wait); scrollDown();
@@ -312,14 +312,14 @@ async function sendMessage(textOverride, opts = {}) {
     if (ch === 'act') {
       const goal = `구글에서 검색해서 확인하고 결과를 쉽게 정리해 줘: ${text}`;
       const where = $('#where').value;
-      addUser(goal, (where === 'current' ? '🤖 작업 · 지금 탭' : '🤖 작업 · 백그라운드 탭') + ` · 🔒${chatGrade}`);
+      addUser(goal, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`);
       const r = await api.agent.start(goal, where, chatGrade);
       if (r.error) addErr(r.error); else ensureCard(r.id, { goal });
       return;
     }
     if (ch === 'cancel') { $('#input').value = text; return; }
     // 'ask': 그래도 질문 모드로 → 아는 범위에서만 답함
-    addUser(text, '💬 질문 · 🔒' + chatGrade);
+    addUser(text, '💬 대화 · 🔒' + chatGrade);
     const w2 = document.createElement('div'); w2.className = 'msg ai typing'; box.appendChild(w2); scrollDown();
     $('#send').disabled = true;
     const r2 = await api.chat.send(text, { ...chatOpts, liveAck: true });
