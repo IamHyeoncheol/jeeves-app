@@ -325,3 +325,9 @@ body.layout-web #sidebar, #sidebar.collapsed { display: none; }
 #to-bottom { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); box-shadow: 0 2px 8px rgba(0,0,0,.18); cursor: pointer; font-size: 16px; line-height: 1; padding: 0; }
 #to-bottom:hover { border-color: var(--accent); color: var(--accent); }
 #dev-folder-change { font-size: 12px; padding: 0 4px; }
+
+/* 왼쪽 목록 계층: 카테고리 제목(굵게) 아래에 항목을 들여쓰고 왼쪽 안내선을 둔다(폴더 안의 파일처럼) */
+.sb-h { font-size: 12px; color: var(--ink-2); padding: 6px 6px 3px; }
+#sb-projects, #sb-chats, #sb-devs, #sb-works { margin-left: 13px; padding-left: 6px; border-left: 1px solid var(--line); }
+#sb-chats .sb-item, #sb-devs .sb-item, #sb-works .sb-item { font-size: 12.5px; }
+.sb-item.child { margin-left: 14px; }

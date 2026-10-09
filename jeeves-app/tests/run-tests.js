@@ -745,6 +745,24 @@ function fakeFetch(handler) {
     delete process.env.FAKE_MODE;
   });
 
+  await t('대화 저장: 실패한 질문도 남고, 되돌리기는 답 받은 질문 기준, 저장 즉시 파일 생김', async () => {
+    const { ConversationStore } = require('../src/main/conversations');
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'jv-cv-')), 'c.json');
+    const st = new ConversationStore(f);
+    const c = st.create({ title: '질문', grade: 'I' });
+    assert.ok(fs.existsSync(f));   // 만든 즉시 저장(300ms 기다리지 않음)
+    st.addFailedTurn(c.id, { grade: 'I', kind: 'chat', q: '첫 질문', err: '공급자 없음' });
+    st.saveTurn(c.id, { grade: 'I', kind: 'chat', q: '둘째', a: '답1' }, [{ role: 'user' }, { role: 'assistant' }], 'I');
+    st.saveTurn(c.id, { grade: 'I', kind: 'chat', q: '셋째', a: '답2' }, [{ role: 'user' }, { role: 'assistant' }, { role: 'user' }, { role: 'assistant' }], 'I');
+    const re = new ConversationStore(f);   // 다시 열어도 남음
+    assert.strictEqual(re.get(c.id).turns.length, 3);
+    assert.strictEqual(re.get(c.id).turns[0].err, '공급자 없음');
+    assert.strictEqual(re.get(c.id).history.length, 4);   // 실패한 질문은 AI 기록에 안 들어감
+    re.truncate(c.id, 1);   // 답 받은 질문 1개만 남김
+    assert.deepStrictEqual(re.get(c.id).turns.map(x => x.q), ['첫 질문', '둘째']);
+    assert.strictEqual(re.get(c.id).history.length, 2);
+  });
+
   let fail = 0;
   for (const [ok, name, err] of results) { if (!ok) fail++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : '  → ' + err}`); }
   console.log(`\n${results.length - fail}/${results.length} 통과`);

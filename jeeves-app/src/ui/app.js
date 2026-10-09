@@ -529,7 +529,7 @@ async function sendMessage(textOverride, opts = {}) {
   }
   wait.remove();
   $('#send').disabled = false;
-  if (res.ok && res.convId) { curConvId = res.convId; pendingProject = null; }
+  if (res.convId) { curConvId = res.convId; pendingProject = null; }   // 실패해도 질문은 대화로 저장됨
   if (res.ok) addAI(res.text, res.meta || res.model, true); else addErr(res.error);
 }
 $('#send').onclick = () => sendMessage();
@@ -1029,12 +1029,13 @@ function renderSidebar() {
   const sb = $('#sidebar'); if (!sb) return;
   sb.classList.toggle('collapsed', !!sbState.hidden);
   const q = $('#sb-search').value.trim().toLowerCase();
-  const convItem = (c, child) => `<div class="sb-item ${child ? 'child' : ''} ${c.id === curConvId ? 'on' : ''}" data-conv="${esc(c.id)}" title="${esc(c.title)}">${sbEdit && sbEdit.type === 'conv' && sbEdit.id === c.id ? `<input class="sb-edit" value="${esc(c.title)}">` : `<span class="t">${SB_ICO.chat}${esc(c.title)}</span><button class="more" data-more="conv:${esc(c.id)}" title="더보기">⋯</button>`}</div>`;
-  const workItem = (w, child) => `<div class="sb-item ${child ? 'child' : ''}" data-work="${esc(w.key)}" title="${esc(w.goal || w.title)}"><span class="t">${SB_ICO.work}${esc(w.title)}</span><span class="st">${w.running ? SB_ICO.run : w.success ? SB_ICO.ok : SB_ICO.no}</span>${w.running ? '' : `<button class="more" data-more="work:${esc(w.at)}" title="더보기">⋯</button>`}</div>`;
-  const convs = sbData.convs.filter(c => sbMatch(q, c.title)), works = sbData.works.filter(w => sbMatch(q, w.title, w.goal));
+  const convItem = (c, child) => `<div class="sb-item ${child ? 'child' : ''} ${c.id === curConvId ? 'on' : ''}" data-conv="${esc(c.id)}" title="${esc(c.title)}">${sbEdit && sbEdit.type === 'conv' && sbEdit.id === c.id ? `<input class="sb-edit" value="${esc(c.title)}">` : `<span class="t">${esc(c.title)}</span><button class="more" data-more="conv:${esc(c.id)}" title="더보기">⋯</button>`}</div>`;
+  const workItem = (w, child) => `<div class="sb-item ${child ? 'child' : ''}" data-work="${esc(w.key)}" title="${esc(w.goal || w.title)}"><span class="t">${esc(String(w.title).replace(/^🛠\s*/, ''))}</span><span class="st">${w.running ? SB_ICO.run : w.success ? SB_ICO.ok : SB_ICO.no}</span>${w.running ? '' : `<button class="more" data-more="work:${esc(w.at)}" title="더보기">⋯</button>`}</div>`;
+  const convs = sbData.convs.filter(c => sbMatch(q, c.title)), allW = sbData.works.filter(w => sbMatch(q, w.title, w.goal));
+  const works = allW.filter(w => w.kind !== 'dev'), devs = allW.filter(w => w.kind === 'dev');
   let ph = sbNewProj ? '<div class="sb-item"><input class="sb-edit" id="sb-newproj-input" placeholder="프로젝트 이름"></div>' : '';
   for (const p of sbData.projects) {
-    const pc = convs.filter(c => c.projectId === p.id), pw = works.filter(w => w.projectId === p.id);
+    const pc = convs.filter(c => c.projectId === p.id), pw = allW.filter(w => w.projectId === p.id);
     const all = sbData.convs.filter(c => c.projectId === p.id).length + sbData.works.filter(w => w.projectId === p.id).length;
     if (q && !pc.length && !pw.length && !sbMatch(q, p.name)) continue;
     const open = q ? true : !!sbState.open[p.id];
@@ -1042,8 +1043,9 @@ function renderSidebar() {
     if (open) ph += pc.map(c => convItem(c, true)).join('') + pw.map(w => workItem(w, true)).join('') + (!pc.length && !pw.length ? '<div class="sb-empty" style="margin-left:16px">비어 있음</div>' : '');
   }
   $('#sb-projects').innerHTML = ph || '<div class="sb-empty">＋를 눌러 프로젝트를 만드세요</div>';
-  const loose = convs.filter(c => !c.projectId), looseW = works.filter(w => !w.projectId);
+  const loose = convs.filter(c => !c.projectId), looseW = works.filter(w => !w.projectId), looseD = devs.filter(w => !w.projectId);
   $('#sb-chats').innerHTML = loose.length ? loose.map(c => convItem(c, false)).join('') : '<div class="sb-empty">대화가 없습니다</div>';
+  $('#sb-devs').innerHTML = looseD.length ? looseD.map(w => workItem(w, false)).join('') : '<div class="sb-empty">개발 기록이 없습니다</div>';
   $('#sb-works').innerHTML = looseW.length ? looseW.map(w => workItem(w, false)).join('') : '<div class="sb-empty">작업 기록이 없습니다</div>';
   const inp = sb.querySelector('.sb-edit');
   if (inp) { inp.focus(); inp.select(); }
@@ -1103,7 +1105,7 @@ async function openConv(id) {
   for (const t of c.turns) {
     const atts = (t.atts || []).map(a => a.kind === 'image' ? { kind: 'image', name: a.name, lost: true } : { kind: 'text', name: a.name, text: a.text || '' });
     addUser(t.q, (t.kind === 'sum' ? '📄 요약' : (t.page ? '💬 대화 · 페이지 포함' : '💬 대화')) + ` · 🔒${t.grade}`, { kind: t.kind === 'sum' ? 'sum' : 'chat', page: !!t.page, attachments: atts });
-    addAI(t.a, t.meta, true);
+    if (t.err) addErr(t.err); else addAI(t.a, t.meta, true);
   }
   setChatGrade(c.gradeMax || 'I');
   attachments = []; renderTray(); scrollDown(); renderSidebar();

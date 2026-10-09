@@ -168,7 +168,7 @@ function sanitizeAtts(attachments) {
 }
 // 입력 글에 기밀·비밀 단어가 있는지 규칙으로만 살핀다(경고용, 자동 변경 없음)
 ipcMain.handle('grade:suspect', (_, text) => suspectDetail(text));
-ipcMain.handle('chat:send', async (_, { text, includePage, mode, infoGrade, lowerOk, gradeAck, liveAck, attachments, convId, projectId }) => {
+async function chatSend({ text, includePage, mode, infoGrade, lowerOk, gradeAck, liveAck, attachments, convId, projectId }) {
   const role = mode === 'summarize' ? 'summarize' : 'chat';
   const grade = pickGrade(infoGrade);
   // 이 대화의 저장된 기록을 불러온다(없으면 첫 답을 받을 때 새로 만든다)
@@ -235,7 +235,7 @@ ipcMain.handle('chat:send', async (_, { text, includePage, mode, infoGrade, lowe
       if (!curConv) curConv = convs.create({ title: (qText || (atts[0] && atts[0].name) || '새 대화').replace(/\s+/g, ' ').trim(), projectId, grade });
       convs.saveTurn(curConv.id, { grade, kind: role === 'summarize' ? 'sum' : 'chat', page: !!includePage, q: qText, atts: atts.map(a => a.kind === 'image' ? { kind: 'image', name: a.name } : { kind: 'text', name: a.name, text: a.text.slice(0, 20000) }), a: answer, meta }, chatHistory, chatGradeMax);
       activeConvId = curConv.id; send('sidebar:changed');
-    } catch (_) {}
+    } catch (e) { logErr('대화 저장', e); }
     return { ok: true, text: answer, model, costKrw, notice, meta, convId: curConv ? curConv.id : null, title: curConv ? curConv.title : '' };
   };
   const apiReq = { system, messages: [...chatHistory.slice(-20), userMsg], maxTokens: 8192, infoGrade: grade };
@@ -285,6 +285,25 @@ ipcMain.handle('chat:send', async (_, { text, includePage, mode, infoGrade, lowe
   } catch (e) {
     return { ok: false, error: e.message + (failMsg && !e.message.includes(failMsg.slice(0, 20)) ? `\n(앞 단계 안내: ${failMsg.slice(0, 200)})` : '') };
   }
+}
+// 실패해도 질문은 왼쪽 목록에 남긴다(답을 못 받은 경우: 공급자 없음·한도·오류 등). 등급 확인·실시간 안내처럼 "다시 보내는" 응답은 제외.
+function logErr(where, e) { try { fs.appendFileSync(path.join(app.getPath('userData'), 'jeeves-errors.log'), `${new Date().toISOString()} [${where}] ${e && e.stack ? e.stack : e}\n`, 'utf8'); } catch (_) {} }
+ipcMain.handle('chat:send', async (_, a) => {
+  const r = await chatSend(a || {});
+  try {
+    if (r && r.ok === false && r.error && !r.needGrade && !r.needConfirmLower && !r.needLive) {
+      const text = String(a.text || '').trim(), atts = sanitizeAtts(a.attachments);
+      const grade = pickGrade(a.infoGrade);
+      const q = text || (a.mode === 'summarize' ? '이 페이지를 요약해 주세요.' : '');
+      if (q || atts.length) {
+        let conv = a.convId ? convs.get(a.convId) : null;
+        if (!conv) conv = convs.create({ title: (q || (atts[0] && atts[0].name) || '새 대화').replace(/\s+/g, ' ').trim(), projectId: a.projectId, grade });
+        convs.addFailedTurn(conv.id, { grade, kind: a.mode === 'summarize' ? 'sum' : 'chat', page: !!a.includePage, q, atts: atts.map(x => ({ kind: x.kind, name: x.name, text: x.kind === 'text' ? x.text.slice(0, 20000) : undefined })), err: r.error });
+        activeConvId = conv.id; r.convId = conv.id; r.title = conv.title; send('sidebar:changed');
+      }
+    }
+  } catch (e) { logErr('chat:send 실패 기록', e); }
+  return r;
 });
 ipcMain.handle('chat:reset', () => { chatHistory = []; chatGradeMax = 'P'; activeConvId = null; });
 // 수정·재시도: k 번째 질문(0부터) 이전까지만 남기고 그 뒤 기록은 지운다(질문·답변이 한 쌍씩 쌓임)
@@ -293,8 +312,8 @@ ipcMain.handle('chat:truncate', (_, { convId, k }) => { if (convId) convs.trunca
 // ── 왼쪽 목록: 프로젝트·대화(Chat)·작업(Work) ─────────────────
 ipcMain.handle('sidebar:get', () => {
   const l = convs.list();
-  const works = [...liveWorks.values()].map(w => ({ key: 'live' + w.id, id: w.id, title: w.title, goal: w.goal, at: w.at, running: true, projectId: w.projectId || null }));
-  const done = loadTaskHistory().map(h => ({ key: h.at, id: h.id, title: h.title, goal: h.goal, at: h.at, success: !!h.success, running: false, projectId: h.projectId || null }));
+  const works = [...liveWorks.values()].map(w => ({ key: 'live' + w.id, id: w.id, kind: w.dev ? 'dev' : 'work', title: w.title, goal: w.goal, at: w.at, running: true, projectId: w.projectId || null }));
+  const done = loadTaskHistory().map(h => ({ key: h.at, id: h.id, kind: h.engine === 'dev' ? 'dev' : 'work', title: h.title, goal: h.goal, at: h.at, success: !!h.success, running: false, projectId: h.projectId || null }));
   return { projects: l.projects, convs: l.convs, works: [...works, ...done], activeConvId };
 });
 ipcMain.handle('conv:open', (_, id) => {
@@ -576,7 +595,7 @@ ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, en
   const id = ++taskSeq;
   const title = goal.replace(/\s+/g, ' ').trim().slice(0, 24) + (goal.length > 24 ? '…' : '');
   send('agent:event', { taskId: id, type: 'created', goal, title, dev: true, devInfo: { level: p.difficulty.level, label: p.difficulty.label, reasons: p.difficulty.reasons, folder: p.folder, chain: p.chain.map(c => c.label) } });
-  liveWorks.set(id, { id, title: '🛠 ' + title, goal, at: new Date().toISOString(), projectId: projectId || null });
+  liveWorks.set(id, { id, dev: true, title, goal, at: new Date().toISOString(), projectId: projectId || null });
   send('sidebar:changed');
   const workDir = path.join(app.getPath('userData'), 'dev-work');
   const ctl = runChain({ id, goal: fullGoal, folder: p.folder, chain: p._chain, devRouter, bins: p._bins, workDir, level: p.difficulty.level,
@@ -585,7 +604,7 @@ ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, en
       if (ev.type === 'done') {
         devRuns.delete(id);
         if (attDir) { try { fs.rmSync(attDir, { recursive: true, force: true }); } catch (_) {} }
-        saveTaskHistory({ id, title: '🛠 ' + title, goal, atts: attNames, infoGrade: grade, at: new Date().toISOString(), success: !!ev.success, summary: ev.summary || '', engine: 'dev', devEngine: ev.engineLabel, folder: p.folder, level: ev.level, chain: ev.chain, estUsd: ev.estUsd });
+        saveTaskHistory({ id, title, goal, atts: attNames, infoGrade: grade, at: new Date().toISOString(), success: !!ev.success, summary: ev.summary || '', engine: 'dev', devEngine: ev.engineLabel, folder: p.folder, level: ev.level, chain: ev.chain, estUsd: ev.estUsd });
       }
     } });
   devRuns.set(id, { stop: () => ctl.stop(), folder: p.folder });
@@ -597,6 +616,7 @@ app.whenReady().then(async () => {
   const userData = app.getPath('userData');
   historyFile = path.join(userData, 'jeeves-history.json');
   convs = new ConversationStore(path.join(userData, 'jeeves-conversations.json'));
+  convs.onError = e => logErr('대화 파일 쓰기', e);
   config = new ConfigStore(userData, safeStorage);
   router = new ModelRouter(() => config.get(), (url, opts) => net.fetch(url, opts));
   router.onNotice = msg => send('router:notice', msg);   // 자동 전환 알림(화면에 표시)

@@ -33,7 +33,7 @@ class ConversationStore {
       const tmp = this.file + '.tmp';
       fs.writeFileSync(tmp, JSON.stringify(this.data), 'utf8');
       fs.renameSync(tmp, this.file);
-    } catch (_) {}
+    } catch (e) { this.lastError = e.message; if (this.onError) { try { this.onError(e); } catch (_) {} } }
   }
   flush() { if (this.timer) this.save(true); }
 
@@ -54,7 +54,7 @@ class ConversationStore {
       all.sort((a, b) => String(a.updatedAt).localeCompare(String(b.updatedAt)));
       for (const c of all.slice(0, all.length - MAX_CONVS)) delete this.data.convs[c.id];
     }
-    this.save();
+    this.save(true);
     return this.data.convs[id];
   }
   // 한 번 주고받은 것(질문 q·답변 a)과 AI 에게 보낼 기록 전체를 저장
@@ -65,14 +65,26 @@ class ConversationStore {
     c.history = history.slice(-MAX_TURNS * 2);
     if (gradeMax) c.gradeMax = gradeMax;
     c.updatedAt = this.now();
-    this.save();
+    this.save(true);   // 바로 저장(꺼지거나 멈춰도 남도록)
+    return true;
+  }
+  // 답을 못 받은 질문도 목록에 남긴다(AI 기록에는 넣지 않음). err = 실패 이유
+  addFailedTurn(id, turn) {
+    const c = this.get(id); if (!c) return false;
+    c.turns.push({ ...turn, a: '', err: String(turn.err || '답변을 받지 못했습니다.').slice(0, 600) });
+    if (c.turns.length > MAX_TURNS) c.turns = c.turns.slice(-MAX_TURNS);
+    c.updatedAt = this.now();
+    this.save(true);
     return true;
   }
   // 수정·재시도: k 번째(0부터) 질문 앞까지만 남긴다
   truncate(id, k) {
     const c = this.get(id); if (!c) return false;
     k = Math.max(0, parseInt(k, 10) || 0);
-    c.turns = c.turns.slice(0, k);
+    // k 는 "답을 받은 질문" 개수 기준(실패한 질문은 세지 않음)
+    let n = 0, cut = c.turns.length;
+    for (let i = 0; i < c.turns.length; i++) { if (c.turns[i].err) continue; if (n === k) { cut = i; break; } n++; }
+    c.turns = c.turns.slice(0, cut);
     c.history = c.history.slice(0, k * 2);
     this.save();
     return true;
