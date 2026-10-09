@@ -21,7 +21,9 @@ const run = (folder, handler, extra = {}) => new Promise(resolve => {
   const calls = [], events = [], rt = new DevRouter();
   const Cls = fakeClass(handler, calls);
   const planFor = (lv, kind) => rt.plan({ grade: 'P', level: lv, engines: [senior, junior].filter(e => kind === 'any' || (kind === 'junior' ? e.junior : !e.junior)) }).chain;
-  runTeam({ id: 9, goal: '여러 파일로 된 앱을 만들어 줘', folder, level: 3, planFor, devRouter: rt, bins: { claude: 'x' }, workDir: folder, emit: ev => { events.push(ev); if (ev.type === 'done') resolve({ done: ev, calls, events, rt }); }, TaskClass: Cls, ApiClass: Cls, juniorMaxLevel: 2, ...extra });
+  let ctl;
+  const answer = extra.answer || (() => ({}));
+  ctl = runTeam({ id: 9, goal: '여러 파일로 된 앱을 만들어 줘', folder, level: 3, planFor, devRouter: rt, bins: { claude: 'x' }, workDir: folder, emit: ev => { events.push(ev); if (ev.type === 'team-assign') setImmediate(() => ctl.respond(answer(ev))); if (ev.type === 'done') resolve({ done: ev, calls, events, rt }); }, TaskClass: Cls, ApiClass: Cls, juniorMaxLevel: 2, ...extra });
 });
 const writeTasks = (folder, arr) => { fs.mkdirSync(path.join(folder, '.jeeves'), { recursive: true }); fs.writeFileSync(path.join(folder, '.jeeves', 'tasks.json'), typeof arr === 'string' ? arr : JSON.stringify(arr)); };
 const T3 = [{ id: 1, title: '화면', desc: 'index.html 만들기', files: ['index.html'], level: 1, risk: 'low' }, { id: 2, title: '스타일', desc: 'style.css', files: ['style.css'], level: 2, risk: 'low' }, { id: 3, title: '로그인 보안', desc: '인증 로직', files: ['auth.js'], level: 3, risk: 'low' }];   // L3 는 risk 가 low 여도 시니어
@@ -43,6 +45,25 @@ const T_HIGH = [{ id: 1, title: '핵심 로직', desc: '계산 규칙', files: [
     assert.deepStrictEqual(done.teamTasks.map(x => x.ok), [true, true, true]);
     assert.ok(/4단계/.test(calls[4].goal) && /2\/3/.test(calls[2].goal));
     assert.ok(done.team === true);
+  });
+
+  await t('팀: 주니어 배정은 먼저 물어봄 — 추천안 표시, 사용자가 바꾼 대로 진행', async () => {
+    const d = tmp();
+    const r1 = await run(d, o => { if (/1단계/.test(o.goal)) writeTasks(d, T3); });
+    const ask = r1.events.find(e => e.type === 'team-assign');
+    assert.ok(ask); assert.deepStrictEqual(ask.tasks.map(x => x.rec), ['junior', 'junior', 'senior']);
+    const d2 = tmp();
+    const r2 = await run(d2, o => { if (/1단계/.test(o.goal)) writeTasks(d2, T3); }, { answer: () => ({ assign: { 1: 'senior', 2: 'senior', 3: 'senior' } }) });
+    assert.ok(r2.calls.every(c => c.by === 'claude-sonnet'), '전부 시니어로 바꿨는데 주니어가 일함');
+  });
+
+  await t('팀: 확인 대기 중 중지하면 멈춤, 확인 끄면 묻지 않고 추천대로', async () => {
+    const d = tmp();
+    const r = await run(d, o => { if (/1단계/.test(o.goal)) writeTasks(d, T3); }, { answer: () => ({ cancel: true }) });
+    assert.strictEqual(r.done.success, false); assert.ok(/중지/.test(r.done.summary));
+    const d2 = tmp();
+    const r2 = await run(d2, o => { if (/1단계/.test(o.goal)) writeTasks(d2, T3); }, { confirm: false });
+    assert.ok(!r2.events.some(e => e.type === 'team-assign')); assert.ok(r2.calls.some(c => c.by === 'jr-x'));
   });
 
   await t('팀: 품질 영향이 클 수 있는(risk high·표시 없음) 조각은 L1 이어도 시니어가 직접', async () => {

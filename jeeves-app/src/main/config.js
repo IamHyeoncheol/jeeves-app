@@ -60,7 +60,7 @@ const DEFAULTS = {
   // 개발 모드: 지브스가 개발 AI(Claude Code·Codex·기타 명령줄 AI)를 고른 프로젝트 폴더 안에서만 실행. 난이도(L1~L4)에 따라 엔진을 고른다.
   dev: {
     folder: '', prefer: ['claude', 'codex'], preferMode: 'auto', claudeMaxGrade: 'I',
-    junior: { enabled: true, local: true, free: true, paid: false, maxLevel: 2, team: true },   // 주니어 엔진: 지브스가 직접 굴리는 코딩 에이전트(로컬 AI·무료 API 자동 탐지)
+    junior: { enabled: true, local: true, free: true, paid: false, maxLevel: 2, team: true, confirm: true },   // 주니어 엔진: 지브스가 직접 굴리는 코딩 에이전트(로컬 AI·무료 API 자동 탐지)
     claude: { enabled: true, models: { haiku: [1, 2], sonnet: [1, 3], opus: [1, 4] } },
     codex: { enabled: 'auto', path: '', args: 'exec --sandbox workspace-write --skip-git-repo-check -', maxLevel: 3, maxGrade: 'I' },
     custom: []   // 기타 개발 AI: { id, label, bin, args('{prompt}' 또는 표준입력, '{cwd}'), enabled, maxLevel(1~4), maxGrade(P|I|C|S는 local만), cost(free|subscription|api), local }
@@ -77,7 +77,7 @@ function sanitizeDev(d) {
   if (['auto', 'codex', 'claude'].includes(d.preferMode)) out.preferMode = d.preferMode;
   if (d.junior) {
     const j = {};
-    for (const k of ['enabled', 'local', 'free', 'paid', 'team']) if (typeof d.junior[k] === 'boolean') j[k] = d.junior[k];
+    for (const k of ['enabled', 'local', 'free', 'paid', 'team', 'confirm']) if (typeof d.junior[k] === 'boolean') j[k] = d.junior[k];
     if (lvl(d.junior.maxLevel)) j.maxLevel = Math.min(3, lvl(d.junior.maxLevel));
     out.junior = j;
   }

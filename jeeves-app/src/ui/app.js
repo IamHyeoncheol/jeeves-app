@@ -674,6 +674,20 @@ function onAgentEvent(ev) {
       scrollDown(); notify('Jeeves: 확인이 필요합니다', ev.desc);
       break;
     }
+    case 'team-assign': {
+      if (c.lastThinking) { c.lastThinking.remove(); c.lastThinking = null; }
+      const lbl = r => r === 'junior' ? '주니어(무료·로컬 AI)' : '시니어(Claude/Codex)';
+      c.slot.innerHTML = `<div class="prompt ask"><div class="q">👥 주니어에게 맡길 작업을 확인해 주세요</div>
+        <div class="why">상위 AI(시니어)가 작업을 쪼개고, 품질에 영향이 작다고 본 조각을 <b>추천</b>으로 표시했습니다. 모르겠으면 그대로 진행하세요. 주니어가 한 결과도 자동 검증과 시니어 검수를 거칩니다.</div>
+        ${ev.tasks.map(t => `<div class="ta" data-id="${t.id}" style="margin:6px 0"><b>${t.id}. ${esc(t.title)}</b> <small class="muted">(난이도 L${t.level})</small><br><small class="muted">${esc(t.why || '상위 AI가 이유를 적지 않음 → 안전하게 시니어 추천')}</small><br>
+          <select>${['junior', 'senior'].map(r => `<option value="${r}"${t.rec === r ? ' selected' : ''}>${lbl(r)}${t.rec === r ? ' — 추천' : ''}</option>`).join('')}</select></div>`).join('')}
+        <div class="acts"><button class="primary" data-a="ok">이대로 진행</button><button class="ghost" data-a="sr">전부 시니어로</button></div></div>`;
+      const send = all => { const assign = {}; c.slot.querySelectorAll('.ta').forEach(el => { assign[el.dataset.id] = all || el.querySelector('select').value; }); c.slot.innerHTML = ''; addStep(c, '', '👍', '주니어 배정 확인: ' + ev.tasks.map(t => `${t.id}→${assign[t.id] === 'junior' ? '주니어' : '시니어'}`).join(' ')); api.agent.respond(ev.taskId, { assign }); };
+      c.slot.querySelector('[data-a=ok]').onclick = () => send(null);
+      c.slot.querySelector('[data-a=sr]').onclick = () => send('senior');
+      scrollDown(); notify('Jeeves: 주니어 배정 확인', '시니어 추천안을 확인해 주세요');
+      break;
+    }
     case 'ask': {
       if (c.lastThinking) { c.lastThinking.remove(); c.lastThinking = null; }
       c.slot.innerHTML = `<div class="prompt ask"><div class="q">${esc(ev.question)}</div><div class="why">직접 처리할 일(로그인 등)이 있으면 "탭 보기"로 해당 탭에서 처리한 뒤 답해 주세요.</div>
@@ -900,7 +914,7 @@ function loadDevSettings() {
   $('#dev-codex-level').value = String(cx.maxLevel || 3); $('#dev-codex-grade').value = cx.maxGrade || 'I';
   $('#dev-prefer').value = (d.prefer || [])[0] === 'codex' ? 'codex' : 'claude';
   $('#dev-prefermode').value = d.preferMode || 'auto';
-  const jr = d.junior || {}; $('#dev-junior').checked = jr.enabled !== false; $('#dev-team').checked = jr.team !== false;
+  const jr = d.junior || {}; $('#dev-junior').checked = jr.enabled !== false; $('#dev-team').checked = jr.team !== false; $('#dev-confirm').checked = jr.confirm !== false;
   devCustom = JSON.parse(JSON.stringify(d.custom || []));
   renderDevCustom();
 }
@@ -923,7 +937,7 @@ function collectDevCustom() {
 function collectDevSettings() {
   const first = $('#dev-prefer').value === 'codex' ? ['codex', 'claude'] : ['claude', 'codex'];
   return { prefer: first, claudeMaxGrade: $('#dev-claude-grade').value, claude: { enabled: $('#dev-claude').checked },
-    preferMode: $('#dev-prefermode').value, junior: { enabled: $('#dev-junior').checked, team: $('#dev-team').checked },
+    preferMode: $('#dev-prefermode').value, junior: { enabled: $('#dev-junior').checked, team: $('#dev-team').checked, confirm: $('#dev-confirm').checked },
     codex: { enabled: $('#dev-codex').checked ? (((cfg.dev || {}).codex || {}).enabled === 'auto' ? 'auto' : true) : false, path: $('#dev-codex-path').value.trim(), args: $('#dev-codex-args').value.trim(), maxLevel: Number($('#dev-codex-level').value), maxGrade: $('#dev-codex-grade').value },
     custom: collectDevCustom() };
 }

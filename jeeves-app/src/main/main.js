@@ -626,7 +626,7 @@ ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, en
   send('sidebar:changed');
   const workDir = path.join(app.getPath('userData'), 'dev-work');
   const runner = p._team
-    ? o => runTeam({ ...o, planFor: p._planFor, juniorMaxLevel: p._jrMax })
+    ? o => runTeam({ ...o, planFor: p._planFor, juniorMaxLevel: p._jrMax, confirm: (config.get().dev.junior || {}).confirm !== false })
     : o => runChain({ ...o, chain: p._chain });
   const ctl = runner({ id, goal: fullGoal, folder: p.folder, devRouter, bins: p._bins, workDir, level: p.difficulty.level, router, grade, krwPerUsd: config.get().ui.krwPerUsd || 1400,
     emit: ev => {
@@ -638,7 +638,7 @@ ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, en
       }
     } });
   devRuns.set(id, { stop: () => ctl.stop(), folder: p.folder });
-  tasks.set(id, { stop: () => ctl.stop(), respond() {} });
+  tasks.set(id, { stop: () => ctl.stop(), respond: payload => { if (ctl.respond) ctl.respond(payload); } });
   return { id, engine: 'dev' };
 });
 

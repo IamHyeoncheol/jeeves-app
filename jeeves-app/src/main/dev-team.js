@@ -15,7 +15,7 @@ const MAX_TASKS = 10;
 function planPrompt(goal) {
   return `[팀 작업 — 1단계: 계획] 당신은 팀의 시니어입니다. 이 단계에서는 코드를 구현하지 마세요. 프로젝트 폴더의 현재 상태를 확인한 뒤, 아래 두 파일만 만드세요.
 1) .jeeves/PLAN.md — 구조·파일 목록·기술 선택·완료 기준 (한국어, 짧게)
-2) .jeeves/tasks.json — JSON 배열만(설명 글 없이). 각 항목: {"id":1,"title":"짧은 제목","desc":"주니어가 이 글만 읽고 구현할 수 있도록 구체적으로(파일명·함수·입출력·주의점)","files":["만들거나 고칠 파일"],"level":1~4,"risk":"low"|"high"}
+2) .jeeves/tasks.json — JSON 배열만(설명 글 없이). 각 항목: {"id":1,"title":"짧은 제목","desc":"주니어가 이 글만 읽고 구현할 수 있도록 구체적으로(파일명·함수·입출력·주의점)","files":["만들거나 고칠 파일"],"level":1~4,"risk":"low"|"high","why":"risk 를 그렇게 본 이유 한 줄(개발을 모르는 사람도 이해할 쉬운 말로)"}
    · level: 1~2 = 단순, 3~4 = 어려움(설계·보안·복잡한 연동)
    · risk: "low" = 틀려도 품질에 거의 영향이 없고 검증하기 쉬운 부분만(화면 마크업·문구·스타일, 단순 입력 폼, 정형화된 반복 코드, 설정 파일, 단순 시험 코드, 문서). 핵심 로직·보안·데이터·외부 연동·알고리즘·원인 추적이 필요한 수정·여러 파일의 일관성이 필요한 일은 "high". 조금이라도 애매하면 "high". risk 가 low 이고 level 이 1~2 인 작업만 주니어(무료·로컬 AI)가 맡고, 나머지는 시니어가 직접 합니다.
    · 의존 순서대로, 최대 ${MAX_TASKS}개, 작업 하나는 파일 1~3개 범위
@@ -53,7 +53,7 @@ function readTasks(folder) {
     if (!desc && !title) return null;
     const lv = Math.round(Number(t.level)); const level = lv >= 1 && lv <= 4 ? lv : 3;   // 모르면 어려운 쪽(시니어)
     const files = (Array.isArray(t.files) ? t.files : []).map(f => String(f)).filter(f => f && !path.isAbsolute(f) && !f.split(/[\\/]/).includes('..')).slice(0, 6);
-    return { id: i + 1, title: title || desc.slice(0, 40), desc: desc || title, files, level, risk: t.risk === 'low' ? 'low' : 'high' };   // 표시가 없거나 애매하면 high(시니어)
+    return { id: i + 1, title: title || desc.slice(0, 40), desc: desc || title, files, level, risk: t.risk === 'low' ? 'low' : 'high', why: String(t.why || '').trim().slice(0, 200) };   // 표시가 없거나 애매하면 high(시니어)
   }).filter(Boolean);
   return tasks.length ? tasks : null;
 }
@@ -66,6 +66,8 @@ function hasTestScript(folder) {
 function runTeam(o) {
   const { id, goal, folder, level, emit, planFor } = o;
   const base = { id, folder, devRouter: o.devRouter, bins: o.bins, workDir: o.workDir, router: o.router, grade: o.grade, krwPerUsd: o.krwPerUsd, ApiClass: o.ApiClass, TaskClass: o.TaskClass, timeoutMs: o.timeoutMs };
+  let waitAssign = null;
+  const respond = p => { if (waitAssign) { const f = waitAssign; waitAssign = null; f(p); } };
   let stopped = false, cur = null, usd = 0, subscription = true, started = false;
   const attempts = [];           // 화면용 요약 [{label, ok, kind}]
   const log = [];                // 작업별 결과 문장
@@ -109,13 +111,25 @@ function runTeam(o) {
     }
     info(`📋 작업 ${tasks.length}개: ` + tasks.map(t => `${t.id}.${t.title}(L${t.level}${t.risk === 'low' ? '·주니어 가능' : ''})`).join(' · '));
 
+    // 1.5) 주니어 배정 확인: 시니어(상위 AI)가 매긴 risk 를 바탕으로 추천안을 만들고 사용자에게 확인받는다(비개발자 대신 상위 AI 가 판정, 사람은 승인)
+    const jmax = o.juniorMaxLevel || 2;
+    tasks = tasks.map(t => ({ ...t, rec: t.risk === 'low' && t.level <= jmax ? 'junior' : 'senior' }));
+    if (o.confirm !== false && tasks.some(t => t.rec === 'junior')) {
+      info('🙋 주니어에게 맡길 작업을 확인해 주세요 (시니어 추천안)');
+      emit({ taskId: id, type: 'team-assign', tasks: tasks.map(({ id: tid, title, level, risk, why, files, rec }) => ({ id: tid, title, level, risk, why, files, rec })) });
+      const ans = await new Promise(res => { waitAssign = res; });
+      if (stopNow() || (ans && ans.cancel)) return finish(false, '사용자가 작업을 중지했습니다.', { kind: 'stopped' });
+      const map = (ans && ans.assign) || {};
+      tasks = tasks.map(t => ({ ...t, assign: map[t.id] === 'junior' || map[t.id] === 'senior' ? map[t.id] : t.rec }));
+    } else tasks = tasks.map(t => ({ ...t, assign: t.rec }));
+
     // 2) 구현
     const results = [];
     for (let i = 0; i < tasks.length; i++) {
       if (stopNow()) return finish(false, '사용자가 작업을 중지했습니다.', { kind: 'stopped' });
       const t = tasks[i], prompt = taskPrompt(t, i + 1, tasks.length);
       let r = null, by = '';
-      if (t.level <= (o.juniorMaxLevel || 2) && t.risk === 'low') {
+      if (t.assign === 'junior') {
         for (let k = 0; k < 2 && !(r && r.success); k++) {
           const js = planFor(t.level, 'junior'); if (!js.length) break;
           info(`🔧 작업 ${i + 1}/${tasks.length} “${t.title}” → 주니어${k ? ' (재시도)' : ''}`);
@@ -159,7 +173,7 @@ function runTeam(o) {
     finish(ok, `팀 작업 ${ok ? '완료' : '검증 실패로 미완'} — 작업 ${results.length}개\n${log.join('\n')}${rv.success ? '\n\n[검수 보고] ' + String(rv.summary).slice(0, 600) : ''}`, { teamTasks: results, verify });
   })().catch(e => finish(false, '팀 작업 내부 오류: ' + e.message));
 
-  return { stop() { stopped = true; if (cur) cur.stop(); }, get started() { return started; } };
+  return { respond, stop() { stopped = true; respond({ cancel: true }); if (cur) cur.stop(); }, get started() { return started; } };
 }
 
 module.exports = { runTeam, readTasks, hasTestScript, planPrompt };
