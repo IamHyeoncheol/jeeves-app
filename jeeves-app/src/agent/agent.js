@@ -114,10 +114,12 @@ function signature(snap) {
 }
 
 class AgentTask extends EventEmitter {
-  constructor({ id, goal, driver, router, settings, history, krwPerUsd }) {
+  constructor({ id, goal, goalLabel, images, driver, router, settings, history, krwPerUsd }) {
     super();
     this.id = id;
     this.goal = goal;
+    this.goalLabel = goalLabel || goal;   // 화면·기록에 보일 목표(첨부 글을 뺀 것)
+    this.images = Array.isArray(images) ? images : [];   // 사용자가 첨부한 사진(첫 메시지에 함께 보냄)
     this.driver = driver;
     this.router = router;
     this.settings = {
@@ -296,7 +298,7 @@ class AgentTask extends EventEmitter {
     const clickable = snap.elements.filter(e => !e.disabled && !e.sensitive && !/^input:(text|search|email|tel|url|number|password)$|textarea|editor|textbox|searchbox|combobox/.test(e.kind) && !/select/.test(e.kind));
     if (!clickable.length) return { handoff: '누를 만한 요소가 없음' };
     const recent = this.steps.filter(s => s.type === 'action').slice(-8).map(s => `- ${s.desc}${s.ok ? '' : ' (실패)'}`).join('\n') || '(아직 없음)';
-    const state = `목표: ${this.goal}\nAI 메모: ${this.lastSay.slice(0, 400) || '(없음)'}\n최근 행동:\n${recent}\n\n` +
+    const state = `목표: ${this.goalLabel}\nAI 메모: ${this.lastSay.slice(0, 400) || '(없음)'}\n최근 행동:\n${recent}\n\n` +
       formatObservation(snap, null, { text: 'excerpt', excerptLen: 800 });
     const criteria = {};
     for (const e of clickable.slice(0, 250)) criteria['e' + e.id] = elementLine(e).slice(0, 160);
@@ -388,12 +390,12 @@ class AgentTask extends EventEmitter {
 
   async run() {
     this.status = 'running';
-    this.log('start', { goal: this.goal, mode: this.hybridOn() ? 'hybrid' : 'llm' });
+    this.log('start', { goal: this.goalLabel, mode: this.hybridOn() ? 'hybrid' : 'llm' });
     const now = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
     try {
       const first = await this.observeBlocks(null);
       const ctx = this.history.length ? `[이전 대화 참고]\n${this.history.join('\n')}\n\n` : '';
-      this.messages.push({ role: 'user', content: [{ type: 'text', text: `${ctx}[목표]\n${this.goal}` }, ...first] });
+      this.messages.push({ role: 'user', content: [{ type: 'text', text: `${ctx}[목표]\n${this.goal}` }, ...this.images.map(i => ({ type: 'image', source: { type: 'base64', media_type: i.mediaType, data: i.data } })), ...first] });
 
       while (this.actions < this.settings.maxSteps) {
         if (this.status !== 'running') return this.finish(false, '사용자가 작업을 중지했습니다.');

@@ -380,7 +380,6 @@ async function shrinkImage(file) {
   return { mediaType: png ? 'image/png' : 'image/jpeg', data: out.split(',')[1] };
 }
 async function addFiles(files) {
-  if (mode === 'act') { addErr('작업(Work) 모드에서는 파일·사진을 첨부할 수 없습니다. 대화(Chat) 모드에서 첨부해 주세요.'); return; }
   const problems = [];
   for (const f of files) {
     if (attachments.length >= ATT_MAX) { problems.push(`한 번에 ${ATT_MAX}개까지 첨부할 수 있습니다`); break; }
@@ -407,7 +406,7 @@ $('#input').addEventListener('paste', async e => {
   const files = [...(cd.files || [])];
   if (files.length) { e.preventDefault(); await addFiles(files); return; }
   const t = cd.getData('text/plain');
-  if (t && t.length > LONG_PASTE && mode !== 'act') {
+  if (t && t.length > LONG_PASTE) {
     e.preventDefault();
     if (attachments.length >= ATT_MAX) { addErr(`한 번에 ${ATT_MAX}개까지 첨부할 수 있습니다`); return; }
     attachments.push({ kind: 'text', name: `붙여넣은 글 ${attachments.filter(a => a.kind === 'text').length + 1}`, text: t, pasted: true });
@@ -427,6 +426,7 @@ async function sendMessage(textOverride, opts = {}) {
   const isSummary = opts.summarize;
   const atts = isSummary ? [] : (opts.attachments !== undefined ? opts.attachments : attachments);   // 다시 보내기는 그때 첨부 그대로
   if (!text && !isSummary && !atts.length) return;
+  if (!text && mode === 'act' && !isSummary) { addErr('작업 내용을 입력해 주세요. 첨부만으로는 무엇을 시킬지 알 수 없습니다.'); return; }
   $('#input').value = '';
   const welcome = box.querySelector('.welcome');
   if (welcome) welcome.remove();
@@ -444,10 +444,11 @@ async function sendMessage(textOverride, opts = {}) {
     }
   }
   if (mode === 'act' && !isSummary) {
-    if (atts.length) { $('#input').value = text; addErr('작업(Work) 모드에서는 파일·사진을 첨부할 수 없습니다. 첨부를 빼거나 대화(Chat) 모드로 바꿔 주세요.'); return; }
+    if (!text) { addErr('작업 내용을 입력해 주세요. 첨부만으로는 무엇을 시킬지 알 수 없습니다.'); return; }
     const where = $('#where').value;
-    addUser(text, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act' });
-    const r = await api.agent.start(text, where, chatGrade, pendingProject || activeProject);
+    addUser(text, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act', attachments: atts });
+    if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
+    const r = await api.agent.start(text, where, chatGrade, pendingProject || activeProject, atts);
     if (r.error) { addErr(r.error); return; }
     ensureCard(r.id, { goal: text });
     return;
@@ -627,7 +628,7 @@ async function renderHistory() {
   const el = $('#history-list');
   if (!list.length) { el.innerHTML = '<p class="muted">아직 작업 기록이 없습니다.</p>'; return; }
   el.innerHTML = list.map(h => `<div class="hist" data-at="${esc(h.at)}"><div class="h1"><span class="badge ${h.success ? 'ok' : 'fail'}">${h.success ? '완료' : '중단'}</span>${esc(h.title)}<span class="when">${new Date(h.at).toLocaleString('ko-KR')}</span></div>
-    <div class="muted" style="font-size:12px;margin-top:2px">${esc(h.goal)}</div><div class="sum">${esc(h.summary || '')}</div>${h.costKrw != null ? `<div class="stats">약 ${h.costKrw.toLocaleString()}원 · Claude ${h.llmCalls || 0}회 · Jev ${h.jevCalls || 0}회</div>` : ''}</div>`).join('');
+    <div class="muted" style="font-size:12px;margin-top:2px">${esc(h.goal)}${h.atts && h.atts.length ? ` · 첨부: ${esc(h.atts.join(', '))}` : ''}</div><div class="sum">${esc(h.summary || '')}</div>${h.costKrw != null ? `<div class="stats">약 ${h.costKrw.toLocaleString()}원 · Claude ${h.llmCalls || 0}회 · Jev ${h.jevCalls || 0}회</div>` : ''}</div>`).join('');
 }
 
 // ── 설정 ───────────────────────────────────────────────

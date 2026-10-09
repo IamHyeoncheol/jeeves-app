@@ -50,7 +50,7 @@ contextBridge.exposeInMainWorld('jeeves', {
     deleteWork: at => ipcRenderer.invoke('work:delete', at)
   },
   agent: {
-    start: (goal, where, infoGrade, projectId) => ipcRenderer.invoke('agent:start', { goal, where, infoGrade, projectId }),
+    start: (goal, where, infoGrade, projectId, attachments) => ipcRenderer.invoke('agent:start', { goal, where, infoGrade, projectId, attachments }),
     stop: id => ipcRenderer.invoke('agent:stop', id),
     respond: (id, payload) => ipcRenderer.invoke('agent:respond', { id, payload }),
     showTab: id => ipcRenderer.invoke('agent:show-tab', id),

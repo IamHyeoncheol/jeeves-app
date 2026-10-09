@@ -212,6 +212,25 @@ function fakeFetch(handler) {
     assert.ok(isLoginText('Not logged in · Please run /login'));
   });
 
+  await t('작업 첨부: 내장 에이전트는 사진을 첫 메시지에 그림으로 받고, Claude Code 는 첨부 폴더 읽기만 추가 허용', async () => {
+    const { AgentTask } = require('../src/agent/agent');
+    const seen = [];
+    const router = { available: () => true, async call(role, req) { seen.push(req.messages); return { content: [{ type: 'text', text: '끝' }], stopReason: 'end_turn', usage: {}, costUsd: 0, model: 'x' }; } };
+    const driver = { async observe() { return { url: 'about:blank', title: '', elements: [], text: '' }; }, formatObservation() { return ''; } };
+    const task = new AgentTask({ id: 1, goal: '목표 + 첨부글', goalLabel: '목표', images: [{ mediaType: 'image/png', data: 'AAAA' }], driver, router, settings: { mode: 'llm', maxSteps: 1 } });
+    task.observeBlocks = async () => [];   // 화면 관찰은 이 시험과 무관
+    try { await task.run(); } catch (_) {}
+    const first = seen[0] && seen[0][0] && seen[0][0].content;
+    assert.ok(first && first.some(b => b.type === 'image' && b.source.data === 'AAAA'), JSON.stringify(first && first.map(b => b.type)));
+    assert.ok(first.some(b => b.type === 'text' && /목표 \+ 첨부글/.test(b.text)));
+    const { ClaudeCodeTask } = require('../src/main/cc-engine');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-'));
+    const mk = extra => new ClaudeCodeTask({ id: 3, goal: 'g', bin: 'x', mcpUrl: 'http://127.0.0.1:1/mcp', mcpToken: 't', model: 'sonnet', workDir: dir, ...extra });
+    const a1 = mk({}).args(false), a2 = mk({ readScope: 'jeeves-attach' }).args(false);
+    assert.strictEqual(a1[a1.indexOf('--allowedTools') + 1], 'mcp__jeeves__*,ToolSearch');
+    assert.strictEqual(a2[a2.indexOf('--allowedTools') + 1], 'mcp__jeeves__*,ToolSearch,Read(./jeeves-attach/**)');
+  });
+
   await t('구독 엔진: 한도에 걸리면 기다리지 않고 onLimit 로 자동 전환(가짜 claude)', async () => {
     const { ClaudeCodeTask } = require('../src/main/cc-engine');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-'));

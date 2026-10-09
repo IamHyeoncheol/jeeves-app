@@ -160,7 +160,7 @@ class ClaudeCodeTask extends EventEmitter {
     const { mcpFile, rulesFile } = this.files();
     const a = ['-p', '--output-format', 'stream-json', '--verbose',
       '--mcp-config', mcpFile,
-      '--allowedTools', 'mcp__jeeves__*,ToolSearch', // ToolSearch = Claude Code 가 도구 목록을 불러오는 내부 기능(안전)
+      '--allowedTools', this.o.readScope ? `mcp__jeeves__*,ToolSearch,Read(./${this.o.readScope}/**)` : 'mcp__jeeves__*,ToolSearch', // ToolSearch = Claude Code 가 도구 목록을 불러오는 내부 기능(안전)
       '--permission-mode', 'dontAsk',
       '--append-system-prompt-file', rulesFile];
     if (this.o.model) a.push('--model', this.o.model);
@@ -168,7 +168,7 @@ class ClaudeCodeTask extends EventEmitter {
     return a;
   }
 
-  start() { this.status = 'running'; this.log('start', { goal: this.o.goal, engine: 'claude-code' }); this.runOnce(this.o.goal, false); }
+  start() { this.status = 'running'; this.log('start', { goal: this.o.goalLabel || this.o.goal, engine: 'claude-code' }); this.runOnce(this.o.goal, false); }
 
   runOnce(prompt, resume) {
     const bin = this.o.bin;
