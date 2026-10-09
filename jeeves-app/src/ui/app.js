@@ -980,6 +980,7 @@ $('#import-keys').onclick = async () => {
 };
 $('#close-settings').onclick = closeSettings;
 $('#save-settings').onclick = () => saveSettings(false);
+$('#save-close-settings').onclick = async () => { await saveSettings(true); closeSettings(); };
 $('#settings').addEventListener('click', e => { if (e.target.id === 'settings') closeSettings(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#settings').classList.contains('hidden')) closeSettings(); });
 
