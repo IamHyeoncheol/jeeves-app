@@ -148,6 +148,7 @@
           <label class="row"><span>🤖 작업 엔진<br><small class="muted">구독: 내 PC의 정품 Claude Code 실행 (한도에 걸리면 풀릴 때 자동 재개)</small></span>
             <select id="engine-type"><option value="api">API 키 방식 (Sonnet + Jev, 사용량만큼 과금)</option><option value="claude-code">구독: Claude Code (Pro·Max)</option></select>
           </label>
+          <label class="row"><span>🔁 한도·잔액이 떨어지면 자동 전환<br><small class="muted">무료 → 구독 → 저렴한 API 순으로 쓰다가, 한도·잔액 소진·장애로 막히면 멈추지 않고 다음 공급자로 넘깁니다(정보 등급 규칙은 그대로 지킴). 작업(Work)도 구독 한도에 걸리면 내장 에이전트로 이어서 진행합니다.</small></span><input type="checkbox" id="failover"></label>
           <label class="row"><span>🔒 구독 엔진이 받을 수 있는 최고 등급<br><small class="muted">기본 I(내부). C는 Claude Code 계정의 학습 사용 설정을 직접 확인한 뒤에만 올리세요. S(비밀)는 항상 막힙니다.</small></span>
             <select id="engine-grade"><option value="P">P 공개까지</option><option value="I">I 내부까지 (기본)</option><option value="C">C 기밀까지</option></select>
           </label>
@@ -174,6 +175,8 @@
         <section>
           <h3>6. 이번 실행 사용량</h3>
           <div id="usage" class="muted">-</div>
+          <h4 style="margin:10px 0 4px">공급자 현황 (소진되면 잠시 쉬고 자동 전환)</h4>
+          <div id="router-status" class="muted small">-</div>
         </section>
       </div>
       <div class="sheet-foot"><span id="save-msg" class="muted"></span><button class="primary" id="save-settings">저장</button></div>

@@ -392,7 +392,7 @@ async function sendMessage(textOverride, opts = {}) {
     $('#send').disabled = true;
     const r2 = await api.chat.send(text, { ...chatOpts, liveAck: true });
     w2.remove(); $('#send').disabled = false;
-    if (r2.ok) addAI(r2.text, r2.model + (r2.costKrw != null ? ` · 약 ${r2.costKrw}원` : ''), true); else addErr(r2.error || '답변을 받지 못했습니다.');
+    if (r2.ok) addAI(r2.text, r2.model + (r2.costKrw != null ? ` · 약 ${r2.costKrw}원` : '') + (r2.notice ? ` · ↪ ${r2.notice}` : ''), true); else addErr(r2.error || '답변을 받지 못했습니다.');
     return;
   }
   if (res.needGrade) {
@@ -412,7 +412,7 @@ async function sendMessage(textOverride, opts = {}) {
   }
   wait.remove();
   $('#send').disabled = false;
-  if (res.ok) addAI(res.text, res.model + (res.costKrw != null ? ` · 약 ${res.costKrw}원` : ''), true); else addErr(res.error);
+  if (res.ok) addAI(res.text, res.model + (res.costKrw != null ? ` · 약 ${res.costKrw}원` : '') + (res.notice ? ` · ↪ ${res.notice}` : ''), true); else addErr(res.error);
 }
 $('#send').onclick = () => sendMessage();
 $('#input').addEventListener('keydown', e => {
@@ -657,9 +657,13 @@ async function openSettings(msg) {
   $('#confirm-mode').value = a.confirmMode;
   $('#max-steps').value = a.maxSteps;
   $('#homepage').value = cfg.ui.homepage;
-  $('#engine-grade').value = cfg.engine.maxGrade || 'I'; $('#engine-chat').checked = cfg.engine.useForChat !== false;
+  $('#engine-grade').value = cfg.engine.maxGrade || 'I'; $('#engine-chat').checked = cfg.engine.useForChat !== false; $('#failover').checked = cfg.failover !== false;
   $('#engine-type').value = cfg.engine.type; $('#cc-path').value = cfg.engine.claudePath || ''; $('#cc-model').value = cfg.engine.claudeModel || '';
   refreshMcp(); checkClaude(false);
+  try {
+    const rs = (await api.config.routerStatus()).filter(x => x.hasKey || x.calls || x.fails);
+    $('#router-status').innerHTML = rs.length ? rs.map(x => `${x.resting ? '⏸' : '●'} ${esc(x.label)} (${x.tier === 'free' ? '무료' : '유료'}): ${x.calls}회 · 약 $${x.usd.toFixed(4)}${x.resting ? ` — <b>쉬는 중 (${esc(x.restKind)}, 약 ${x.restMin}분 뒤 재시도)</b>` : ''}${x.fails ? ` · 막힘 ${x.fails}회` : ''}`).join('<br>') : '아직 기록이 없습니다.';
+  } catch (_) {}
   const u = await api.usage();
   const rows = Object.entries(u.byRole);
   const total = rows.reduce((t, [, v]) => t + v.usd, 0);
@@ -695,6 +699,7 @@ async function saveSettings(quiet) {
     confirmMode: $('#confirm-mode').value, maxSteps: num($('#max-steps').value, 5, 100, 30)
   };
   patch.engine = { type: $('#engine-type').value, claudePath: $('#cc-path').value.trim(), claudeModel: $('#cc-model').value, maxGrade: $('#engine-grade').value, useForChat: $('#engine-chat').checked };
+  patch.failover = $('#failover').checked;
   patch.infoGrade = $('#info-grade').value;
   patch.ui = { homepage: $('#homepage').value.trim() || 'https://www.google.com', krwPerUsd: num($('#krw-rate').value, 500, 5000, 1400) };
   cfg = await api.config.update(patch);
@@ -761,3 +766,11 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#setti
 
 // 첫 실행: Anthropic 키가 없으면 설정을 연다
 api.config.get().then(c => { cfg = c; setChatGrade(c.infoGrade || 'I'); sizes.preview = c.ui.previewWidth || 400; sizes.panel = c.ui.panelWidth || 420; applySizes(); setLayout(c.ui.layout || 'chat', { save: false }); syncEngineBadge(); if (c.engine.type !== 'claude-code' && !Object.values(c.providers).some(p => p.hasKey && !/127\.0\.0\.1|localhost/.test(p.baseUrl || ''))) setTimeout(() => openSettings('먼저 사용할 AI 공급자의 API 키를 입력하고 저장해 주세요.'), 600); });
+
+// 자동 전환 알림(한도·잔액 소진 등으로 다른 AI 도구로 넘어갈 때)
+api.config.onNotice(m => {
+  const d = document.createElement('div');
+  d.className = 'msg ai gradewarn';
+  d.innerHTML = '<b>🔁 자동 전환</b> ' + esc(m);
+  box.appendChild(d); scrollDown();
+});

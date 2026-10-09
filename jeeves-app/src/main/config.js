@@ -50,6 +50,7 @@ const DEFAULTS = {
     budgetKrw: 500,            // 작업 1건 예산(원). 넘으면 계속할지 묻는다
     viewport: { width: 1440, height: 900 }
   },
+  failover: true,   // 한도·잔액 소진·장애 시 다음 공급자로 자동 전환
   infoGrade: 'I',   // 새 대화·작업의 시작 등급(P 공개/I 내부/C 기밀/S 비밀). 대화·작업마다 입력창 옆 선택칸으로 바꿀 수 있다
   ui: { homepage: 'https://www.google.com', krwPerUsd: 1400, layout: 'chat', previewWidth: 400, panelWidth: 420 }, // layout: 'chat' = 작업 화면 중심, 'web' = 웹 크게
   // 작업 엔진: 'api' = API 키(Claude·Jev 등, 사용량만큼 과금) / 'claude-code' = 내 PC 의 정품 Claude Code(내 구독)
@@ -164,6 +165,7 @@ class ConfigStore {
     if (patch.engine) {
       if (patch.engine.maxGrade !== undefined && !ENGINE_GRADES.includes(patch.engine.maxGrade)) delete patch.engine.maxGrade;
     }
+    if (patch.failover !== undefined) patch.failover = !!patch.failover;
     delete patch.infoGradeV;
     delete patch.removedProviders;   // 삭제 기록은 removeProvider() 로만 바꾼다
     this.data = deepMerge(this.data, patch);

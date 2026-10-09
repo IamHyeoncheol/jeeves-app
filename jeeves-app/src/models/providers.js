@@ -7,9 +7,10 @@
 //          | {type:'thinking'...}/{type:'redacted_thinking'...} (Anthropic 전용, 그대로 돌려보냄)
 
 class ProviderError extends Error {
-  constructor(message, { status, provider, retryable } = {}) {
+  // kind: 'credit'(잔액 부족) | 'limit'(사용량 한도) | 'auth'(키 오류) | 'server'(서버 오류) | 'network'(연결 실패) | undefined(그 밖: 자동 전환 안 함)
+  constructor(message, { status, provider, retryable, kind } = {}) {
     super(message);
-    this.status = status; this.provider = provider; this.retryable = !!retryable;
+    this.status = status; this.provider = provider; this.retryable = !!retryable; this.kind = kind;
   }
 }
 
@@ -21,11 +22,12 @@ function friendlyHttpError(status, bodyText, providerLabel) {
     404: '모델 이름 또는 주소가 틀림', 413: '보낸 내용이 너무 큼', 429: '사용량 한도 초과(잠시 후 재시도)',
     500: '공급자 서버 오류', 529: '공급자 서버 과부하'
   };
-  if (/credit balance|insufficient_quota|billing/i.test(detail)) {
-    return new ProviderError(`[${providerLabel}] 크레딧(선불 잔액) 부족 — 공급자 콘솔의 결제(Billing) 페이지에서 충전해 주세요. (${detail})`, { status, retryable: false });
+  if (status === 402 || /credit balance|insufficient_quota|insufficient[_ ]funds|billing|exceeded your current quota|quota exceeded/i.test(detail)) {
+    return new ProviderError(`[${providerLabel}] 크레딧(선불 잔액) 부족 — 공급자 콘솔의 결제(Billing) 페이지에서 충전해 주세요. (${detail})`, { status, retryable: false, kind: 'credit' });
   }
   const retryable = status === 429 || status >= 500;
-  return new ProviderError(`[${providerLabel}] ${map[status] || 'HTTP ' + status}${detail ? ' — ' + detail : ''}`, { status, retryable });
+  const kind = status === 429 ? 'limit' : status === 401 || status === 403 ? 'auth' : status >= 500 ? 'server' : undefined;
+  return new ProviderError(`[${providerLabel}] ${map[status] || 'HTTP ' + status}${detail ? ' — ' + detail : ''}`, { status, retryable, kind });
 }
 
 async function postJson(fetchImpl, url, headers, body, signal, label) {
@@ -34,7 +36,7 @@ async function postJson(fetchImpl, url, headers, body, signal, label) {
     res = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal });
   } catch (e) {
     if (e.name === 'AbortError') throw e;
-    throw new ProviderError(`[${label}] 네트워크 연결 실패 — ${e.message}`, { retryable: true });
+    throw new ProviderError(`[${label}] 네트워크 연결 실패 — ${e.message}`, { retryable: true, kind: 'network' });
   }
   const text = await res.text();
   if (!res.ok) throw friendlyHttpError(res.status, text, label);

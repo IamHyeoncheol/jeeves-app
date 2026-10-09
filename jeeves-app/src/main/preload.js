@@ -25,7 +25,9 @@ contextBridge.exposeInMainWorld('jeeves', {
     addProvider: spec => ipcRenderer.invoke('config:add-provider', spec),
     removeProvider: id => ipcRenderer.invoke('config:remove-provider', id),
     restoreProviders: () => ipcRenderer.invoke('config:restore-providers'),
-    onUpdate: fn => on('config:update', fn)
+    onUpdate: fn => on('config:update', fn),
+    routerStatus: () => ipcRenderer.invoke('router:status'),
+    onNotice: fn => on('router:notice', fn)
   },
   chat: {
     send: (text, opts) => ipcRenderer.invoke('chat:send', { text, ...opts }),

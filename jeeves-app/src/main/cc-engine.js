@@ -242,6 +242,8 @@ class ClaudeCodeTask extends EventEmitter {
   }
 
   waitForReset(text) {
+    // 자동 전환: 한도에 걸리면 기다리지 않고 다른 방식으로 이어 가도록 호출한 쪽에 넘긴다(넘겼으면 true)
+    if (this.o.onLimit && !this.switched) { let handled = false; try { handled = !!this.o.onLimit(text); } catch (_) {} if (handled) { this.switched = true; return this.finish(false, '구독 사용 한도에 도달해 다른 AI 도구로 자동 전환했습니다.', { switched: true }); } }
     if (this.retries >= this.o.maxRetries) return this.fail('사용 한도가 계속 풀리지 않아 자동 재개를 멈췄습니다. 나중에 다시 지시해 주세요.');
     this.retries++;
     const reset = parseReset(text);
@@ -271,11 +273,11 @@ class ClaudeCodeTask extends EventEmitter {
 
   fail(msg) { this.log('error', { message: msg }); this.finish(false, msg); }
 
-  finish(success, summary) {
+  finish(success, summary, extra) {
     if (this.status === 'done') return;
     this.status = 'done';
     clearTimeout(this.timer);
-    this.result = { success, summary, engine: 'claude-code', subscription: true, estUsd: this.costUsd, turns: this.turns, retries: this.retries };
+    this.result = { success, summary, engine: 'claude-code', subscription: true, estUsd: this.costUsd, turns: this.turns, retries: this.retries, ...(extra || {}) };
     this.log('done', this.result);
     this.emit('finished', this.result);
   }

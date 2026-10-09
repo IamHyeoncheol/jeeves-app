@@ -212,6 +212,20 @@ function fakeFetch(handler) {
     assert.ok(isLoginText('Not logged in · Please run /login'));
   });
 
+  await t('구독 엔진: 한도에 걸리면 기다리지 않고 onLimit 로 자동 전환(가짜 claude)', async () => {
+    const { ClaudeCodeTask } = require('../src/main/cc-engine');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-'));
+    process.env.FAKE_LOG = path.join(dir, 'calls.log'); delete process.env.FAKE_MODE;
+    let asked = 0;
+    const task = new ClaudeCodeTask({ id: 2, goal: '공고 찾기', bin: path.join(__dirname, 'fixtures', 'fake-claude.js'), mcpUrl: 'http://127.0.0.1:1/mcp', mcpToken: 'tok', model: 'sonnet', workDir: dir, onLimit: () => { asked++; return true; } });
+    const done = new Promise(r => task.on('finished', r));
+    task.start();
+    const res = await done;
+    assert.strictEqual(asked, 1);
+    assert.ok(res.switched && !res.success && /자동 전환/.test(res.summary), JSON.stringify(res));
+    assert.strictEqual(fs.readFileSync(process.env.FAKE_LOG, 'utf8').trim().split('\n').length, 1);   // 대기·재개 없이 끝남
+  });
+
   await t('구독 엔진: 한도 대기 → 자동 재개 → 완료 (가짜 claude)', async () => {
     const { ClaudeCodeTask } = require('../src/main/cc-engine');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-'));
@@ -259,6 +273,72 @@ function fakeFetch(handler) {
     const cfg = clone(DEFAULTS); cfg.providers.anthropic.apiKey = 'k';
     const f = fakeFetch(() => ({ status: 400, body: { error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API.' } } }));
     await assert.rejects(new ModelRouter(() => cfg, f).call('chat', { messages: [] }), /크레딧\(선불 잔액\) 부족/);
+  });
+
+  // ── 자동 전환(한도·잔액 소진 시 다음 공급자로) ─────────────────
+  const okOpenAI = { status: 200, body: { choices: [{ message: { content: '전환 성공' } }], usage: { prompt_tokens: 3, completion_tokens: 2 } } };
+  const creditErr = { status: 400, body: { error: { message: 'Your credit balance is too low to access the Anthropic API.' } } };
+  const msg1 = { system: 's', messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], infoGrade: 'I' };
+
+  await t('자동 전환: 잔액 부족 공급자는 쉬게 하고 다음 공급자로 같은 요청을 보냄(다음 호출은 쉬는 곳을 건너뜀)', async () => {
+    const c = clone(DEFAULTS); c.infoGrade = 'I'; c.providers.anthropic.apiKey = 'k'; c.providers.openai.apiKey = 'k2';
+    c.providers.anthropic.maxGrade = 'I'; c.providers.openai.maxGrade = 'I';
+    const f = fakeFetch(url => url.includes('anthropic') ? creditErr : okOpenAI);
+    const notes = [];
+    const r = new ModelRouter(() => c, f, () => 1000); r.onNotice = m => notes.push(m);
+    const res1 = await r.call('chat', msg1);
+    assert.strictEqual(res1.content[0].text, '전환 성공');
+    assert.ok(res1.failover && /Anthropic.*잔액·한도 소진/.test(res1.failover[0]) && notes.length === 1);
+    assert.ok(r.status().find(x => x.id === 'anthropic').resting);
+    const before = f.calls.filter(x => x.url.includes('anthropic')).length;
+    await r.call('chat', msg1);
+    assert.strictEqual(f.calls.filter(x => x.url.includes('anthropic')).length, before);   // 쉬는 동안 다시 두드리지 않음
+  });
+
+  await t('자동 전환: 쉬는 시간이 지나면 다시 시도하고, 설정을 저장하면(충전 후) 바로 풀림', async () => {
+    const c = clone(DEFAULTS); c.infoGrade = 'I'; c.providers.anthropic.apiKey = 'k'; c.providers.openai.apiKey = 'k2';
+    c.providers.anthropic.maxGrade = 'I'; c.providers.openai.maxGrade = 'I';
+    let now = 1000, fail = true;
+    const f = fakeFetch(url => url.includes('anthropic') ? (fail ? creditErr : { status: 200, body: { content: [{ type: 'text', text: '복귀' }], stop_reason: 'end_turn', usage: {} } }) : okOpenAI);
+    const r = new ModelRouter(() => c, f, () => now);
+    await r.call('chat', msg1);
+    fail = false;
+    assert.strictEqual((await r.call('chat', msg1)).content[0].text, '전환 성공');   // 아직 쉬는 중
+    now += 31 * 60e3;
+    assert.strictEqual((await r.call('chat', msg1)).content[0].text, '복귀');         // 30분 뒤 복귀
+    r.markCool('anthropic', Object.assign(new Error('x'), { kind: 'limit' }));
+    r.clearCooldown();
+    assert.ok(!r.status().find(x => x.id === 'anthropic').resting);
+  });
+
+  await t('자동 전환: 429 한도 초과도 전환, 형식 오류(400)는 전환하지 않고 그대로 알림, 끄면 전환 안 함', async () => {
+    const c = clone(DEFAULTS); c.infoGrade = 'I'; c.providers.anthropic.apiKey = 'k'; c.providers.openai.apiKey = 'k2';
+    c.providers.anthropic.maxGrade = 'I'; c.providers.openai.maxGrade = 'I';
+    const f429 = fakeFetch(url => url.includes('anthropic') ? { status: 429, body: { error: { message: 'rate' } } } : okOpenAI);
+    const r1 = new ModelRouter(() => c, f429, () => 1000);
+    assert.strictEqual((await r1.call('chat', msg1)).content[0].text, '전환 성공');
+    const f400 = fakeFetch(url => url.includes('anthropic') ? { status: 400, body: { error: { message: 'bad request shape' } } } : okOpenAI);
+    await assert.rejects(new ModelRouter(() => c, f400, () => 1000).call('chat', msg1), /요청 형식 오류/);
+    assert.ok(!f400.calls.some(x => x.url.includes('openai')));
+    c.failover = false;
+    await assert.rejects(new ModelRouter(() => c, fakeFetch(url => url.includes('anthropic') ? creditErr : okOpenAI), () => 1000).call('chat', msg1), /크레딧\(선불 잔액\) 부족/);
+  });
+
+  await t('자동 전환: 정보 등급 관문은 전환 중에도 유지(C 등급은 허용 안 된 공급자로 넘어가지 않음) / 전부 막히면 해결 안내', async () => {
+    const c = clone(DEFAULTS); c.infoGrade = 'I'; c.providers.anthropic.apiKey = 'k'; c.providers.openai.apiKey = 'k2';
+    c.providers.anthropic.maxGrade = 'C'; c.providers.openai.maxGrade = 'I';
+    const f = fakeFetch(url => url.includes('anthropic') ? creditErr : okOpenAI);
+    await assert.rejects(new ModelRouter(() => c, f, () => 1000).call('chat', { ...msg1, infoGrade: 'C' }), /크레딧\(선불 잔액\) 부족.*다른 공급자가 없어/);
+    assert.ok(!f.calls.some(x => x.url.includes('openai')));
+    const both = fakeFetch(() => creditErr);
+    await assert.rejects(new ModelRouter(() => c, both, () => 1000).call('chat', msg1), /모두 막혔습니다/);
+  });
+
+  await t('자동 전환: freeOnly 는 무료 공급자만 시도', async () => {
+    const c = clone(DEFAULTS); c.infoGrade = 'P'; c.providers.gemini.apiKey = 'k'; c.providers.openai.apiKey = 'k2';
+    const f = fakeFetch(() => ({ status: 429, body: { error: { message: 'free quota' } } }));
+    await assert.rejects(new ModelRouter(() => c, f, () => 1000).call('chat', { ...msg1, infoGrade: 'P', freeOnly: true }));
+    assert.ok(!f.calls.some(x => x.url.includes('api.openai.com')));   // 무료가 막혀도 freeOnly 단계에서는 유료로 넘어가지 않음(구독 단계를 먼저 거치도록)
   });
 
   // ── 추천 배정 · 공급자 추가/삭제 · 유료/무료 ─────────────────

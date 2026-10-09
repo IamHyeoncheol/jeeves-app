@@ -81,7 +81,8 @@ function suspectDetail(text) {
 const usable = (p, grade) => !!p && !p.disabled && !p.off && gradeOk(p, grade || 'P') && !!p.apiKey && p.apiKey !== 'ollama';
 
 // cfg: 설정 원본(키 포함). 반환: { provider, model, tier, grade, reason } 또는 null(추천 불가)
-function recommendFor(cfg, role, infoGradeArg) {
+function recommendFor(cfg, role, infoGradeArg, opts) {
+  opts = opts || {};   // opts.exclude: 건너뛸 공급자 id 집합(한도·잔액 소진 등), opts.tier: 'free' 면 무료 공급자만
   const infoGrade = GRADES.includes(infoGradeArg) ? infoGradeArg : (GRADES.includes(cfg.infoGrade) ? cfg.infoGrade : 'P');
   const needs = NEED[role];
   if (!needs) return null;
@@ -90,6 +91,8 @@ function recommendFor(cfg, role, infoGradeArg) {
     const cands = [];
     for (const [id, p] of Object.entries(cfg.providers || {})) {
       const model = CATALOG[id] && CATALOG[id][grade];
+      if (opts.exclude && opts.exclude.has(id)) continue;
+      if (opts.tier === 'free' && p.tier !== 'free') continue;
       if (model && usable(p, infoGrade)) cands.push({ provider: id, model, tier: p.tier === 'free' ? 'free' : 'paid', local: isLocal(p) });
     }
     if (!cands.length) continue;
