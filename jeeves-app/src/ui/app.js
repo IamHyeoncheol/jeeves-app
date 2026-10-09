@@ -1127,7 +1127,9 @@ function renderSidebar() {
   }
   $('#sb-projects').innerHTML = ph || '<div class="sb-empty">＋를 눌러 프로젝트를 만드세요</div>';
   const loose = convs.filter(c => !c.projectId), looseW = works.filter(w => !w.projectId), looseD = devs.filter(w => !w.projectId);
-  $('#sb-chats').innerHTML = loose.length ? loose.map(c => convItem(c, false)).join('') : '<div class="sb-empty">대화가 없습니다</div>';
+  const looseChat = loose.filter(c => c.kind !== 'idea'), looseIdea = loose.filter(c => c.kind === 'idea');
+  $('#sb-chats').innerHTML = looseChat.length ? looseChat.map(c => convItem(c, false)).join('') : '<div class="sb-empty">대화가 없습니다</div>';
+  $('#sb-ideas').innerHTML = looseIdea.length ? looseIdea.map(c => convItem(c, false)).join('') : '<div class="sb-empty">아이디어가 없습니다</div>';
   $('#sb-devs').innerHTML = looseD.length ? looseD.map(w => workItem(w, false)).join('') : '<div class="sb-empty">개발 기록이 없습니다</div>';
   $('#sb-works').innerHTML = looseW.length ? looseW.map(w => workItem(w, false)).join('') : '<div class="sb-empty">작업 기록이 없습니다</div>';
   const inp = sb.querySelector('.sb-edit');

@@ -67,6 +67,16 @@ const cfgOf = (over = {}) => ({
     const h = md(structure(SAMPLE, 'q'));
     assert.ok(h.startsWith('<h2>') && h.includes('<h3>1. 진공 건조') && h.includes('<ul><li><b>원리:</b>') && h.includes('<h2>결론</h2>'));
   });
+  await t('왼쪽 목록: 아이디어 대화는 kind=idea, 예전 💡 제목도 아이디어로 분류, 일반 대화는 chat', () => {
+    const os = require('os'), path = require('path');
+    const { ConversationStore } = require('../src/main/conversations');
+    const st = new ConversationStore(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'idea-')), 'c.json'));
+    st.create({ title: '일반 질문', grade: 'I' });
+    st.create({ title: '💡 새 아이디어', grade: 'P', kind: 'idea' });
+    st.create({ title: '💡 예전 아이디어', grade: 'P' });
+    const k = Object.fromEntries(st.list().convs.map(c => [c.title, c.kind]));
+    assert.deepStrictEqual(k, { '일반 질문': 'chat', '💡 새 아이디어': 'idea', '💡 예전 아이디어': 'idea' });
+  });
   const bad = results.filter(r => !r[0]);
   results.forEach(r => console.log((r[0] ? 'PASS ' : 'FAIL ') + r[1] + (r[2] ? ' — ' + r[2] : '')));
   console.log(`idea-tests: ${results.length - bad.length}/${results.length}`);

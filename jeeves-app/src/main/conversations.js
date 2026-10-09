@@ -39,16 +39,16 @@ class ConversationStore {
 
   // ── 목록(왼쪽 영역용: 내용은 빼고 제목·시각만) ──
   list() {
-    const convs = Object.values(this.data.convs).map(c => ({ id: c.id, title: c.title, projectId: c.projectId || null, updatedAt: c.updatedAt, grade: c.gradeMax || 'P', turns: c.turns.length }));
+    const convs = Object.values(this.data.convs).map(c => ({ id: c.id, title: c.title, projectId: c.projectId || null, updatedAt: c.updatedAt, grade: c.gradeMax || 'P', turns: c.turns.length, kind: c.kind === 'idea' || /^💡/.test(c.title || '') ? 'idea' : 'chat' }));
     convs.sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
     return { projects: this.data.projects.slice(), convs };
   }
   get(id) { return this.data.convs[id] || null; }
 
-  create({ title, projectId, grade }) {
+  create({ title, projectId, grade, kind }) {
     const id = newId(), t = this.now();
     const pid = this.data.projects.some(p => p.id === projectId) ? projectId : null;
-    this.data.convs[id] = { id, title: String(title || '새 대화').slice(0, 60), projectId: pid, createdAt: t, updatedAt: t, gradeMax: grade || 'P', turns: [], history: [] };
+    this.data.convs[id] = { id, title: String(title || '새 대화').slice(0, 60), projectId: pid, createdAt: t, updatedAt: t, gradeMax: grade || 'P', turns: [], history: [], ...(kind === 'idea' ? { kind: 'idea' } : {}) };
     const all = Object.values(this.data.convs);
     if (all.length > MAX_CONVS) {   // 가장 오래 안 쓴 대화부터 정리
       all.sort((a, b) => String(a.updatedAt).localeCompare(String(b.updatedAt)));

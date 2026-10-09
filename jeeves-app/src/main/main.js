@@ -198,7 +198,7 @@ async function ideaSend({ text, projectId }) {
   const meta = `💡 아이디어 · ${res.model} · 아이디어 후보`;
   let convId = null, title = '';
   try {
-    const conv = convs.create({ title: ('💡 ' + q).replace(/\s+/g, ' ').trim(), projectId, grade: 'P' });
+    const conv = convs.create({ title: ('💡 ' + q).replace(/\s+/g, ' ').trim(), projectId, grade: 'P', kind: 'idea' });
     const hist = [{ role: 'user', content: [{ type: 'text', text: q }] }, { role: 'assistant', content: [{ type: 'text', text: answer }] }];
     convs.saveTurn(conv.id, { grade: 'P', kind: 'chat', page: false, q, atts: [], a: answer, meta }, hist, 'P');
     activeConvId = conv.id; convId = conv.id; title = conv.title; send('sidebar:changed');
