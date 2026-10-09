@@ -110,6 +110,15 @@ ipcMain.handle('config:update', (_, patch) => { const c = config.update(patch); 
 ipcMain.handle('config:test', async (_, role) => {
   try { return await router.testRole(role); } catch (e) { return { ok: false, error: e.message }; }
 });
+ipcMain.handle('config:add-provider', (_, spec) => {
+  try { const r = config.addProvider(spec); send('config:update', r.config); return { ok: true, id: r.id, config: r.config }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('config:remove-provider', (_, id) => {
+  try { const c = config.removeProvider(id); send('config:update', c); return { ok: true, config: c }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('config:restore-providers', () => { const c = config.restoreProviders(); send('config:update', c); return { ok: true, config: c }; });
 ipcMain.handle('usage:get', () => ({ byRole: router.usage, krwPerUsd: config.get().ui.krwPerUsd || 1400 }));
 // 키 파일(txt)에서 API 키 불러오기
 ipcMain.handle('config:import-keys', async () => {
@@ -120,6 +129,7 @@ ipcMain.handle('config:import-keys', async () => {
   const found = parseKeyFile(text);
   const ids = Object.keys(found);
   if (!ids.length) return { ok: false, error: '파일에서 알아볼 수 있는 키를 찾지 못했습니다.' };
+  if (ids.some(id => !config.get().providers[id])) config.restoreProviders();   // 지웠던 기본 공급자의 키라면 되살린 뒤 저장
   const patch = { providers: {} };
   for (const id of ids) patch.providers[id] = { apiKey: found[id] };
   const c = config.update(patch);

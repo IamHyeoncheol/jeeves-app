@@ -2,6 +2,7 @@
 // 호출마다 토큰 사용량과 비용(달러)을 계산해 돌려준다.
 const { ADAPTERS, ProviderError } = require('./providers');
 const { costUsd } = require('./pricing');
+const { recommendFor } = require('./recommend');
 
 class ModelRouter {
   constructor(getConfig, fetchImpl) {
@@ -12,8 +13,13 @@ class ModelRouter {
 
   resolve(role) {
     const cfg = this.getConfig();
-    const r = cfg.roles[role];
+    let r = cfg.roles[role];
     if (!r) throw new ProviderError(`'${role}' 부문 설정이 없습니다.`);
+    // 추천 모드: 키가 있는 공급자 중 필요 등급을 채우는 가장 싼 것(무료 우선)을 그때그때 고른다. 추천할 게 없으면 저장된 배정을 쓴다.
+    if (r.mode === 'auto') {
+      const rec = recommendFor(cfg, role);
+      if (rec) r = { ...r, provider: rec.provider, model: rec.model, effort: rec.provider === 'anthropic' ? r.effort : '' };
+    }
     const p = cfg.providers[r.provider];
     if (!p) throw new ProviderError(`'${r.label}' 부문에 배정된 공급자(${r.provider})를 찾을 수 없습니다.`);
     if (p.disabled) throw new ProviderError(`'${p.label}' 공급자는 아직 사용할 수 없습니다.`);
@@ -29,8 +35,9 @@ class ModelRouter {
     try { this.resolve(role); return true; } catch (_) { return false; }
   }
 
-  record(role, model, usage) {
-    const usd = costUsd(model, usage);
+  record(role, model, usage, provider) {
+    // 무료로 표시한 공급자는 0원으로 계산한다(유료 계정이면 설정에서 '유료'로 바꿀 것)
+    const usd = provider && provider.tier === 'free' ? 0 : costUsd(model, usage);
     const u = (this.usage[role] = this.usage[role] || { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 0, unknownCost: false });
     u.calls += 1; u.input += usage.input || 0; u.output += usage.output || 0;
     u.cacheRead += usage.cacheRead || 0; u.cacheWrite += usage.cacheWrite || 0;
@@ -45,7 +52,7 @@ class ModelRouter {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const res = await adapter(provider, roleCfg.model, full, this.fetch);
-        res.costUsd = this.record(role, roleCfg.model, res.usage);
+        res.costUsd = this.record(role, roleCfg.model, res.usage, provider);
         res.model = `${provider.label} · ${roleCfg.model}`;
         res.modelId = roleCfg.model;
         return res;

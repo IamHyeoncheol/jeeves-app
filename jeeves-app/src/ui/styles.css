@@ -143,13 +143,26 @@ button.link { background: none; border: 0; color: var(--muted); cursor: pointer;
 .sheet h3 { font-size: 14px; margin: 18px 0 4px; }
 .sheet p.muted { margin: 0 0 8px; font-size: 12.5px; }
 .prov, .role { display: grid; gap: 6px; align-items: center; padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; }
-.prov { grid-template-columns: 210px 1fr 1fr; }
+.prov { grid-template-columns: 200px 1fr 1fr 74px 60px; }
 .role { grid-template-columns: 170px 150px minmax(200px, 1fr) 76px auto; }
 .prov input, .role input, .role select, .row input, .row select { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: var(--bg); min-width: 0; }
 .prov .nm, .role .nm { font-weight: 600; font-size: 13px; }
 .prov.disabled { opacity: .55; }
 .prov input.saved { border-color: var(--good); background: #f1f9f4; letter-spacing: 1px; font-weight: 600; cursor: text; }
 .role .res { grid-column: 1 / -1; font-size: 12px; }
+.role .recline { grid-column: 1 / -1; font-size: 12px; }
+.role .seg { display: flex; width: max-content; margin-top: 4px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.role .seg button { border: 0; background: var(--surface); padding: 1px 10px; font-size: 11px; cursor: pointer; color: var(--ink-2); }
+.role .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.role select:disabled, .role input:disabled { opacity: .75; background: var(--surface-2); }
+.prov select { border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; background: var(--bg); min-width: 0; }
+.prov button.ghost { padding: 3px 8px; font-size: 12px; }
+.badge.paid { background: #fff3dc; color: #8a5a00; }
+.sheet h3 button.small { font-size: 11px; padding: 1px 8px; margin-left: 8px; font-weight: 500; }
+.addbox { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; background: var(--surface); }
+.addgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin-bottom: 6px; }
+.addgrid label { display: grid; gap: 2px; font-size: 12px; color: var(--ink-2); }
+.addgrid input, .addgrid select { border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: var(--bg); min-width: 0; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; }
 .row input[type=number] { width: 90px; }
 .row input#homepage { width: 320px; }

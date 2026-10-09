@@ -89,15 +89,29 @@
       <div class="sheet-head"><h2>설정</h2><button class="icon" id="close-settings">✕</button></div>
       <div class="sheet-body">
         <section>
-          <h3>1. AI 공급자 (API 키)</h3>
+          <h3>1. AI 공급자 (API 키) <button type="button" class="ghost small" id="add-provider-btn">＋ 공급자 추가</button></h3>
           <p class="muted">키는 이 PC에서 Windows 보호 기능으로 암호화해 저장합니다. 저장된 키는 화면에 ●로만 표시됩니다.</p>
           <div class="row"><span>키 파일(txt)에서 한 번에 불러오기<br><small class="muted">Anthropic·Gemini·TypeSafe 등 키 모양을 알아서 구분합니다. 불러온 뒤 txt 파일은 지우는 것을 권합니다.</small></span><button class="ghost" id="import-keys">키 파일 선택</button></div>
           <div id="import-msg" class="muted"></div>
+          <div id="add-provider" class="addbox hidden">
+            <div class="addgrid">
+              <label>이름<input id="ap-label" maxlength="40" placeholder="공급자 이름"></label>
+              <label>통신 방식<select id="ap-type"><option value="openai">OpenAI 호환 (대부분)</option><option value="anthropic">Anthropic 방식</option></select></label>
+              <label>주소<input id="ap-url" placeholder="https://…/v1"></label>
+              <label>요금 유형<select id="ap-tier"><option value="paid">유료</option><option value="free">무료</option></select></label>
+              <label>API 키 (선택, 나중에 입력 가능)<input id="ap-key" type="password" autocomplete="off"></label>
+            </div>
+            <p class="muted">대부분의 서비스는 "OpenAI 호환"입니다. 서비스 안내문에 OpenAI 호환(compatible)이라고 적혀 있는지 확인하세요. 주소는 https:// 만 쓸 수 있습니다(내 PC 로컬 모델만 http://127.0.0.1 허용).</p>
+            <div class="row"><span id="ap-msg" class="muted"></span><span><button type="button" class="ghost" id="ap-cancel">취소</button> <button type="button" class="primary" id="ap-ok">추가</button></span></div>
+          </div>
+          <p class="muted">요금 유형: <b>무료</b>로 표시하면 비용을 0원으로 계산하고 추천에서 먼저 고릅니다. <b>유료</b>는 단가표로 계산합니다. 무료 등급은 입력이 학습에 쓰일 수 있으니(Gemini 무료는 공식 확인) 민감한 자료는 넣지 마세요. 삭제하면 저장된 키도 함께 지워집니다.</p>
           <div id="providers"></div>
+          <div id="restore-line" class="muted hidden"><button type="button" class="link" id="restore-providers">삭제한 기본 공급자 복원</button></div>
         </section>
         <section>
           <h3>2. 부문별 모델 배정</h3>
-          <p class="muted">부문마다 다른 AI와 생각 깊이(effort)를 정할 수 있습니다. 생각 깊이가 낮을수록 빠르고 저렴합니다(Claude 5 계열만 적용).</p>
+          <p class="muted"><b>추천</b>: 키가 있는 공급자 중 부문에 필요한 등급을 채우는 가장 싼 모델(무료 우선)을 자동으로 고릅니다. <b>직접</b>: 공급자와 모델을 직접 고릅니다. 부문마다 [추천|직접]으로 바꿀 수 있습니다. 생각 깊이(effort)는 낮을수록 빠르고 저렴합니다(Claude 5 계열만 적용).</p>
+          <div class="row"><span>모든 부문을 추천 배정으로<br><small class="muted">직접 고른 값은 지워지지 않고, 저장하면 추천이 적용됩니다.</small></span><button type="button" class="ghost" id="roles-all-auto">추천안으로 모두 맞추기</button></div>
           <div id="roles"></div>
           <datalist id="model-suggestions">
             <option value="claude-sonnet-5-5"><option value="claude-opus-5-5"><option value="claude-haiku-4-5-20251001"><option value="claude-fable-5-1">

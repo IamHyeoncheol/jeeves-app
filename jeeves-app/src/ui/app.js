@@ -387,43 +387,87 @@ function syncEngineBadge() {
   b.classList.toggle('sub', sub);
 }
 api.config.onUpdate(c => { cfg = c; syncEngineBadge(); });
-async function openSettings(msg) {
-  cfg = await api.config.get();
-  settingsOpen = true;
-  api.layout.hideWeb(true);
-  $('#settings').classList.remove('hidden');
-  const pv = $('#providers');
-  pv.innerHTML = Object.entries(cfg.providers).map(([id, p]) => {
+// ── 설정 화면: 공급자 목록 / 부문 배정 ───────────────────────────
+const isLocalUrl = u => /127\.0\.0\.1|localhost/.test(u || '');
+function renderProviders() {
+  const entries = Object.entries(cfg.providers);
+  $('#providers').innerHTML = entries.map(([id, p]) => {
     // 저장된 키는 ●●●●(일정한 길이, 끝자리 없음)로 눈에 띄게 보여 주고, 비어 있으면 '미입력'으로 구분한다 (키는 화면에 오지 않음)
     const saved = !!p.hasKey && id !== 'ollama' && !p.disabled;
     const shown = saved ? '●●●●●●●●●●●●●●' : '';
-    const badge = id === 'ollama' ? '' : saved ? ' <span class="badge ok">✔ 저장됨</span>' : (p.disabled ? '' : ' <span class="badge">미입력</span>');
+    const keyBadge = id === 'ollama' ? '' : saved ? ' <span class="badge ok">✔ 저장됨</span>' : (p.disabled ? '' : ' <span class="badge">미입력</span>');
+    const tier = p.tier === 'free' ? 'free' : 'paid';
+    const tierBadge = ` <span class="badge ${tier === 'free' ? 'ok' : 'paid'}">${tier === 'free' ? '무료' : '유료'}</span>`;
     const keyInput = saved
       ? `<input data-k="apiKey" class="saved" type="text" autocomplete="off" spellcheck="false" value="${esc(shown)}" data-shown="${esc(shown)}" data-orig="${esc(p.apiKey)}" title="저장된 키입니다. 바꾸려면 이 칸을 클릭하고 새 키를 붙여넣으세요.">`
-      : `<input data-k="apiKey" type="password" placeholder="${p.disabled ? '고도화 단계에서 연결' : 'API 키 붙여넣기'}" value="${esc(p.apiKey)}" ${p.disabled ? 'disabled' : ''}>`;
+      : `<input data-k="apiKey" type="password" autocomplete="off" placeholder="${p.disabled ? '고도화 단계에서 연결' : 'API 키 붙여넣기'}" value="${esc(p.apiKey)}" ${p.disabled ? 'disabled' : ''}>`;
     return `
-    <div class="prov ${p.disabled ? 'disabled' : ''}" data-id="${id}">
-      <div class="nm">${esc(p.label)}${badge}</div>
+    <div class="prov ${p.disabled ? 'disabled' : ''}" data-id="${esc(id)}">
+      <div class="nm">${esc(p.label)}${tierBadge}${keyBadge}</div>
       ${keyInput}
       <input data-k="baseUrl" placeholder="주소" value="${esc(p.baseUrl)}" title="접속 주소(보통 바꿀 필요 없음)" ${p.disabled ? 'disabled' : ''}>
+      <select data-k="tier" title="요금 유형: 무료는 비용 0원으로 계산·추천에서 우선, 유료는 단가표로 계산"><option value="free" ${tier === 'free' ? 'selected' : ''}>무료</option><option value="paid" ${tier === 'paid' ? 'selected' : ''}>유료</option></select>
+      <button type="button" class="ghost" data-del="${esc(id)}" title="이 공급자를 목록에서 삭제합니다 (저장된 키도 함께 지워짐)">삭제</button>
     </div>`;
-  }).join('');
+  }).join('') || '<div class="muted">공급자가 없습니다. "＋ 공급자 추가"를 누르거나 아래 "복원"을 눌러 주세요.</div>';
   // 저장된 키 칸: 클릭하면 전체 선택(바로 덮어쓰기), 새로 입력하면 다시 가려서 표시
   $$('#providers input.saved').forEach(el => {
     el.addEventListener('focus', () => el.select());
     el.addEventListener('input', () => { if (el.value !== el.dataset.shown) { el.type = 'password'; el.classList.remove('saved'); } });
   });
-  const provOpts = Object.entries(cfg.providers).map(([id, p]) => `<option value="${id}">${esc(p.label)}</option>`).join('');
+  // 요금 유형을 바꾸면 바로 저장하고 추천을 다시 계산해 보여 준다
+  $$('#providers [data-k=tier]').forEach(sel => sel.addEventListener('change', async () => { await saveSettings(true); renderProviders(); renderRoles(); }));
+  // 삭제: 처음 누르면 "삭제 확인"으로 바뀌고, 3.5초 안에 한 번 더 누르면 삭제
+  $$('#providers [data-del]').forEach(b => b.addEventListener('click', async () => {
+    if (b.dataset.armed !== '1') {
+      b.dataset.armed = '1'; b.textContent = '삭제 확인'; b.classList.remove('ghost'); b.classList.add('danger');
+      setTimeout(() => { if (b.isConnected) { b.dataset.armed = ''; b.textContent = '삭제'; b.classList.remove('danger'); b.classList.add('ghost'); } }, 3500);
+      return;
+    }
+    await saveSettings(true);   // 다른 칸에서 고친 내용 보존
+    const r = await api.config.removeProvider(b.dataset.del);
+    if (r.ok) { cfg = r.config; renderProviders(); renderRoles(); $('#save-msg').textContent = '삭제했습니다.'; }
+    else $('#save-msg').textContent = '⚠ ' + r.error;
+  }));
+  $('#restore-line').classList.toggle('hidden', !(cfg.removedProviders && cfg.removedProviders.length));
+}
+
+function renderRoles() {
+  const provOpts = Object.entries(cfg.providers).map(([id, p]) => `<option value="${esc(id)}">${esc(p.label)} · ${p.tier === 'free' ? '무료' : '유료'}</option>`).join('');
   $('#roles').innerHTML = Object.entries(cfg.roles).map(([id, r]) => `
-    <div class="role" data-id="${id}">
-      <div class="nm">${esc(r.label)}</div>
+    <div class="role" data-id="${esc(id)}" data-mode="${r.mode === 'manual' ? 'manual' : 'auto'}">
+      <div class="nm">${esc(r.label)}<div class="seg"><button type="button" data-mode-btn="auto">추천</button><button type="button" data-mode-btn="manual">직접</button></div></div>
       <select data-k="provider">${provOpts}</select>
       <input data-k="model" list="model-suggestions" value="${esc(r.model)}" placeholder="모델 이름">
       <select data-k="effort" title="생각 깊이(effort)"><option value="">기본</option><option value="low">낮음</option><option value="medium">중간</option><option value="high">높음</option></select>
-      <button class="ghost" data-test="${id}">연결 테스트</button>
+      <button class="ghost" data-test="${esc(id)}">연결 테스트</button>
+      <div class="recline muted"></div>
       <div class="res muted"></div>
     </div>`).join('');
-  $$('#roles .role').forEach(row => { const r = cfg.roles[row.dataset.id]; row.querySelector('[data-k=provider]').value = r.provider; row.querySelector('[data-k=effort]').value = r.effort || ''; });
+  $$('#roles .role').forEach(row => {
+    const id = row.dataset.id, r = cfg.roles[id];
+    const sel = row.querySelector('[data-k=provider]'), mdl = row.querySelector('[data-k=model]'), eff = row.querySelector('[data-k=effort]');
+    sel.value = cfg.providers[r.provider] ? r.provider : (Object.keys(cfg.providers)[0] || '');
+    eff.value = r.effort || '';
+    const apply = () => {
+      const auto = row.dataset.mode === 'auto';
+      const rec = (cfg.recommend || {})[id];
+      row.querySelectorAll('[data-mode-btn]').forEach(b => b.classList.toggle('on', b.dataset.modeBtn === row.dataset.mode));
+      if (auto && rec) { sel.value = rec.provider; mdl.value = rec.model; }   // 추천값을 보여 준다(직접으로 바꾸면 이 값에서 시작)
+      sel.disabled = mdl.disabled = auto && !!rec;
+      const recLabel = rec && cfg.providers[rec.provider] ? `${cfg.providers[rec.provider].label} · ${rec.model}` : '';
+      const line = row.querySelector('.recline');
+      line.textContent = auto
+        ? (rec ? `추천: ${recLabel} — ${rec.reason}` : '추천할 수 있는 공급자가 없습니다(키가 있는 공급자 없음). 아래 값으로 동작하며 "직접"으로 바꿀 수 있습니다.')
+        : (rec ? `직접 선택 중입니다. (추천은 ${recLabel})` : '직접 선택 중입니다.');
+      const pp = cfg.providers[sel.value];
+      if (pp && pp.tier === 'free' && !isLocalUrl(pp.baseUrl)) line.textContent += ' ⚠ 무료 등급: 입력이 학습에 쓰일 수 있으니(Gemini 무료는 공식 확인) 민감한 자료는 넣지 마세요.';
+    };
+    row._apply = apply;
+    row.querySelectorAll('[data-mode-btn]').forEach(b => b.addEventListener('click', () => { row.dataset.mode = b.dataset.modeBtn; apply(); }));
+    sel.addEventListener('change', apply);
+    apply();
+  });
   $$('#roles [data-test]').forEach(b => b.onclick = async () => {
     await saveSettings(true);
     const res = b.parentElement.querySelector('.res');
@@ -431,6 +475,14 @@ async function openSettings(msg) {
     const r = await api.config.test(b.dataset.test);
     res.textContent = r.ok ? `✅ 연결됨 — ${r.model} (응답: ${r.text})` : `❌ ${r.error}`;
   });
+}
+async function openSettings(msg) {
+  cfg = await api.config.get();
+  settingsOpen = true;
+  api.layout.hideWeb(true);
+  $('#settings').classList.remove('hidden');
+  renderProviders();
+  renderRoles();
   const a = cfg.agent;
   $('#agent-mode').value = a.mode; $('#jev-conf').value = a.jevConfidence; $('#shot-mode').value = a.screenshotMode;
   $('#escalate').checked = a.escalate; $('#budget').value = a.budgetKrw; $('#krw-rate').value = cfg.ui.krwPerUsd;
@@ -456,10 +508,14 @@ async function saveSettings(quiet) {
     const keyEl = row.querySelector('[data-k=apiKey]');
     // 저장된 키를 건드리지 않았으면 가려진 표시값 대신 '기존 키 유지' 신호(••••••••)를 보낸다
     const keyVal = keyEl.dataset.shown && keyEl.value.trim() === keyEl.dataset.shown ? keyEl.dataset.orig : keyEl.value.trim();
-    patch.providers[id] = { apiKey: keyVal, baseUrl: row.querySelector('[data-k=baseUrl]').value.trim() };
+    patch.providers[id] = { apiKey: keyVal, baseUrl: row.querySelector('[data-k=baseUrl]').value.trim(), tier: row.querySelector('[data-k=tier]').value };
   });
   $$('#roles .role').forEach(row => {
-    patch.roles[row.dataset.id] = { provider: row.querySelector('[data-k=provider]').value, model: row.querySelector('[data-k=model]').value.trim(), effort: row.querySelector('[data-k=effort]').value };
+    const id = row.dataset.id, mode = row.dataset.mode === 'manual' ? 'manual' : 'auto';
+    const rp = { mode, effort: row.querySelector('[data-k=effort]').value };
+    // 추천 모드이고 추천값이 있으면 직접 고른 값(provider·model)은 건드리지 않고 보존한다
+    if (mode === 'manual' || !(cfg.recommend || {})[id]) { rp.provider = row.querySelector('[data-k=provider]').value; rp.model = row.querySelector('[data-k=model]').value.trim(); }
+    patch.roles[id] = rp;
   });
   const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
   patch.agent = {
@@ -470,8 +526,25 @@ async function saveSettings(quiet) {
   patch.engine = { type: $('#engine-type').value, claudePath: $('#cc-path').value.trim(), claudeModel: $('#cc-model').value };
   patch.ui = { homepage: $('#homepage').value.trim() || 'https://www.google.com', krwPerUsd: num($('#krw-rate').value, 500, 5000, 1400) };
   cfg = await api.config.update(patch);
-  if (!quiet) { $('#save-msg').textContent = '저장했습니다.'; setTimeout(() => { $('#save-msg').textContent = ''; }, 2000); }
+  if (!quiet) { renderProviders(); renderRoles(); $('#save-msg').textContent = '저장했습니다.'; setTimeout(() => { $('#save-msg').textContent = ''; }, 2000); }
 }
+$('#add-provider-btn').onclick = () => { $('#add-provider').classList.toggle('hidden'); $('#ap-msg').textContent = ''; };
+$('#ap-cancel').onclick = () => $('#add-provider').classList.add('hidden');
+$('#ap-ok').onclick = async () => {
+  await saveSettings(true);   // 다른 칸에서 고친 내용 보존
+  const r = await api.config.addProvider({ label: $('#ap-label').value, type: $('#ap-type').value, baseUrl: $('#ap-url').value, tier: $('#ap-tier').value, apiKey: $('#ap-key').value });
+  if (!r.ok) { $('#ap-msg').textContent = '⚠ ' + r.error; return; }
+  ['#ap-label', '#ap-url', '#ap-key'].forEach(s => { $(s).value = ''; });
+  $('#add-provider').classList.add('hidden');
+  cfg = r.config; renderProviders(); renderRoles();
+  $('#save-msg').textContent = '공급자를 추가했습니다. 키가 없으면 입력한 뒤 [직접]으로 부문에 배정하고 [연결 테스트]로 확인하세요(직접 추가한 공급자는 자동 추천 대상이 아닙니다).';
+};
+$('#restore-providers').onclick = async () => {
+  await saveSettings(true);
+  const r = await api.config.restoreProviders();
+  if (r.ok) { cfg = r.config; renderProviders(); renderRoles(); $('#save-msg').textContent = '삭제했던 기본 공급자를 복원했습니다(키는 다시 입력해야 합니다).'; }
+};
+$('#roles-all-auto').onclick = () => { $$('#roles .role').forEach(row => { row.dataset.mode = 'auto'; row._apply && row._apply(); }); $('#save-msg').textContent = '저장하면 모든 부문이 추천 배정으로 바뀝니다.'; };
 $('#open-settings').onclick = () => openSettings();
 async function refreshMcp() {
   const st = await api.mcp.status();
@@ -507,4 +580,4 @@ $('#settings').addEventListener('click', e => { if (e.target.id === 'settings') 
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#settings').classList.contains('hidden')) closeSettings(); });
 
 // 첫 실행: Anthropic 키가 없으면 설정을 연다
-api.config.get().then(c => { cfg = c; sizes.preview = c.ui.previewWidth || 400; sizes.panel = c.ui.panelWidth || 420; applySizes(); setLayout(c.ui.layout || 'chat', { save: false }); syncEngineBadge(); if (!c.providers.anthropic.hasKey && c.engine.type !== 'claude-code') setTimeout(() => openSettings('먼저 Anthropic API 키를 입력하고 저장해 주세요.'), 600); });
+api.config.get().then(c => { cfg = c; sizes.preview = c.ui.previewWidth || 400; sizes.panel = c.ui.panelWidth || 420; applySizes(); setLayout(c.ui.layout || 'chat', { save: false }); syncEngineBadge(); if (c.engine.type !== 'claude-code' && !Object.values(c.providers).some(p => p.hasKey && !/127\.0\.0\.1|localhost/.test(p.baseUrl || ''))) setTimeout(() => openSettings('먼저 사용할 AI 공급자의 API 키를 입력하고 저장해 주세요.'), 600); });
