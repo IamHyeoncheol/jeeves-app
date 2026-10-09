@@ -549,6 +549,27 @@ function fakeFetch(handler) {
     assert.strictEqual(suspectGrade('a.b@example.com 확인'), 'C');
   });
 
+  await t('구독으로 질문·요약: 도구 없이 글만 주고받음(성공 / 한도 / 로그인 안 됨 안내)', async () => {
+    const { runClaudeChat } = require('../src/main/cc-engine');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-'));
+    const bin = path.join(__dirname, 'fixtures', 'fake-claude.js');
+    process.env.FAKE_LOG = path.join(dir, 'c.log');
+    process.env.FAKE_MODE = 'chat';
+    const ok = await runClaudeChat({ bin, model: 'haiku', system: '규칙', prompt: '질문입니다', workDir: dir });
+    assert.strictEqual(ok.text, '구독으로 답했습니다');
+    const call = JSON.parse(fs.readFileSync(process.env.FAKE_LOG, 'utf8').trim().split('\n')[0]);
+    assert.strictEqual(call.stdin, '질문입니다');
+    assert.strictEqual(call.args[call.args.indexOf('--allowedTools') + 1], 'ToolSearch');   // 웹 조작(MCP)·파일·명령 도구 없음
+    assert.ok(!call.args.includes('--mcp-config'));
+    assert.strictEqual(call.args[call.args.indexOf('--permission-mode') + 1], 'dontAsk');
+    assert.strictEqual(call.args[call.args.indexOf('--model') + 1], 'haiku');
+    process.env.FAKE_MODE = 'limit';
+    await assert.rejects(() => runClaudeChat({ bin, system: '', prompt: 'x', workDir: dir }), e => e.kind === 'limit' && /한도/.test(e.message));
+    process.env.FAKE_MODE = 'login';
+    await assert.rejects(() => runClaudeChat({ bin, system: '', prompt: 'x', workDir: dir }), e => e.kind === 'login' && /로그인/.test(e.message));
+    delete process.env.FAKE_MODE;
+  });
+
   let fail = 0;
   for (const [ok, name, err] of results) { if (!ok) fail++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : '  → ' + err}`); }
   console.log(`\n${results.length - fail}/${results.length} 통과`);

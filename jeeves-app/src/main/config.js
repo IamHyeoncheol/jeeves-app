@@ -53,7 +53,7 @@ const DEFAULTS = {
   infoGrade: 'I',   // 새 대화·작업의 시작 등급(P 공개/I 내부/C 기밀/S 비밀). 대화·작업마다 입력창 옆 선택칸으로 바꿀 수 있다
   ui: { homepage: 'https://www.google.com', krwPerUsd: 1400, layout: 'chat', previewWidth: 400, panelWidth: 420 }, // layout: 'chat' = 작업 화면 중심, 'web' = 웹 크게
   // 작업 엔진: 'api' = API 키(Claude·Jev 등, 사용량만큼 과금) / 'claude-code' = 내 PC 의 정품 Claude Code(내 구독)
-  engine: { type: 'api', claudePath: '', claudeModel: 'sonnet', maxGrade: 'I' },   // maxGrade: 구독 엔진이 받을 수 있는 최고 정보 등급(S는 항상 차단)
+  engine: { type: 'api', claudePath: '', claudeModel: 'sonnet', maxGrade: 'I', useForChat: true },   // maxGrade: 구독 엔진이 받을 수 있는 최고 정보 등급(S는 항상 차단)
   // 외부 에이전트(Claude Code·Codex)가 Jeeves 브라우저를 쓰게 하는 창구 (내 PC 안에서만)
   mcp: { enabled: true, port: 47840, token: '' }
 };

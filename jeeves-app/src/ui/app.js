@@ -552,7 +552,7 @@ async function openSettings(msg) {
   $('#confirm-mode').value = a.confirmMode;
   $('#max-steps').value = a.maxSteps;
   $('#homepage').value = cfg.ui.homepage;
-  $('#engine-grade').value = cfg.engine.maxGrade || 'I';
+  $('#engine-grade').value = cfg.engine.maxGrade || 'I'; $('#engine-chat').checked = cfg.engine.useForChat !== false;
   $('#engine-type').value = cfg.engine.type; $('#cc-path').value = cfg.engine.claudePath || ''; $('#cc-model').value = cfg.engine.claudeModel || '';
   refreshMcp(); checkClaude(false);
   const u = await api.usage();
@@ -589,7 +589,7 @@ async function saveSettings(quiet) {
     escalate: $('#escalate').checked, budgetKrw: num($('#budget').value, 0, 1e7, 500),
     confirmMode: $('#confirm-mode').value, maxSteps: num($('#max-steps').value, 5, 100, 30)
   };
-  patch.engine = { type: $('#engine-type').value, claudePath: $('#cc-path').value.trim(), claudeModel: $('#cc-model').value, maxGrade: $('#engine-grade').value };
+  patch.engine = { type: $('#engine-type').value, claudePath: $('#cc-path').value.trim(), claudeModel: $('#cc-model').value, maxGrade: $('#engine-grade').value, useForChat: $('#engine-chat').checked };
   patch.infoGrade = $('#info-grade').value;
   patch.ui = { homepage: $('#homepage').value.trim() || 'https://www.google.com', krwPerUsd: num($('#krw-rate').value, 500, 5000, 1400) };
   cfg = await api.config.update(patch);

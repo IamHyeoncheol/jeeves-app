@@ -79,6 +79,56 @@ function isLoginText(text) {
   return /(not logged in|please run \/login|login required|invalid api key|authentication|로그인)/i.test(String(text || ''));
 }
 
+// 질문·요약(대화)을 구독 엔진으로 처리: 도구 없이 글만 주고받는다.
+// - 이미 검증된 옵션만 쓴다(-p, stream-json, --verbose, --permission-mode dontAsk, --allowedTools ToolSearch, --append-system-prompt-file, --model).
+//   허용 도구가 없는 dontAsk 모드라 파일 편집·명령 실행·웹 조작은 모두 거부된다.
+// - Claude 로그인 정보는 읽지 않는다(정품 Claude Code 가 자기 로그인으로 처리).
+// 반환: { text, costUsd } / 실패 시 Error(한국어 안내, .kind = 'limit' | 'login' | 'error', .resumeAt)
+function runClaudeChat({ bin, model, system, prompt, workDir, timeoutMs = 180000 }) {
+  return new Promise((resolve, reject) => {
+    const fail = (kind, msg, extra) => { const e = new Error(msg); e.kind = kind; Object.assign(e, extra || {}); reject(e); };
+    let rulesFile;
+    try {
+      fs.mkdirSync(workDir, { recursive: true });
+      rulesFile = path.join(workDir, 'jeeves-chat-rules.txt');
+      fs.writeFileSync(rulesFile, system || '', 'utf8');
+    } catch (e) { return fail('error', '작업 폴더를 준비하지 못했습니다: ' + e.message); }
+    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'dontAsk', '--allowedTools', 'ToolSearch', '--append-system-prompt-file', rulesFile];
+    if (model) args.push('--model', model);
+    const shell = /\.(cmd|bat)$/i.test(bin);
+    let child;
+    try { child = spawn(bin, args, { cwd: workDir, windowsHide: true, shell, env: { ...process.env } }); }
+    catch (e) { return fail('error', 'Claude Code 실행 실패: ' + e.message); }
+    let buf = '', errText = '', result = null, done = false;
+    const timer = setTimeout(() => { try { child.kill(); } catch (_) {} if (!done) { done = true; fail('error', 'Claude Code 응답 시간이 초과되었습니다.'); } }, timeoutMs);
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', chunk => {
+      buf += chunk; let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line) continue;
+        try { const m = JSON.parse(line); if (m.type === 'result') result = m; } catch (_) {}
+      }
+    });
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', c => { errText += c; if (errText.length > 20000) errText = errText.slice(-20000); });
+    child.on('error', e => { clearTimeout(timer); if (!done) { done = true; fail('error', 'Claude Code 실행 실패: ' + e.message); } });
+    child.on('close', code => {
+      clearTimeout(timer);
+      if (done) return;
+      done = true;
+      const text = result ? String(result.result || '') : '';
+      const failed = !result || result.is_error || (result.subtype && result.subtype !== 'success');
+      if (!failed) return resolve({ text, costUsd: typeof result.total_cost_usd === 'number' ? result.total_cost_usd : null });
+      const all = text + '\n' + errText;
+      if (isLimitText(all)) { const r = parseReset(all); return fail('limit', '구독 사용 한도에 도달했습니다' + (r ? ` (풀리는 시각 약 ${r.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })})` : '') + '. 한도가 풀린 뒤 다시 시도하거나, 설정에서 API 키 방식 공급자를 쓰세요.', { resumeAt: r }); }
+      if (isLoginText(all)) return fail('login', 'Claude Code 로그인이 필요합니다. 명령 프롬프트(cmd)에서 claude 를 한 번 실행해 공식 화면으로 로그인한 뒤 다시 시도하세요.');
+      fail('error', `Claude Code 가 오류로 끝났습니다 (코드 ${code}). ${(text || errText).slice(0, 300)}`);
+    });
+    child.stdin.end(prompt);
+  });
+}
+
 class ClaudeCodeTask extends EventEmitter {
   // opts: { id, goal, bin, mcpUrl, mcpToken, model, workDir, maxRetries }
   constructor(opts) {
@@ -231,4 +281,4 @@ class ClaudeCodeTask extends EventEmitter {
   }
 }
 
-module.exports = { ClaudeCodeTask, findClaude, getVersion, parseReset, isLimitText, isLoginText, RULES };
+module.exports = { ClaudeCodeTask, runClaudeChat, findClaude, getVersion, parseReset, isLimitText, isLoginText, RULES };

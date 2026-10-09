@@ -151,6 +151,7 @@
           <label class="row"><span>🔒 구독 엔진이 받을 수 있는 최고 등급<br><small class="muted">기본 I(내부). C는 Claude Code 계정의 학습 사용 설정을 직접 확인한 뒤에만 올리세요. S(비밀)는 항상 막힙니다.</small></span>
             <select id="engine-grade"><option value="P">P 공개까지</option><option value="I">I 내부까지 (기본)</option><option value="C">C 기밀까지</option></select>
           </label>
+          <label class="row"><span>질문·요약도 구독으로 처리<br><small class="muted">무료 모델(P 등급)이 가능하면 무료를 먼저 쓰고, 아니면 구독(Claude Code)을 쓰고, 그것도 안 되면 API 키(크레딧)를 씁니다.</small></span><input type="checkbox" id="engine-chat"></label>
           <div class="row"><span>추천 엔진<br><small class="muted" id="engine-rec">Claude Code 설치 확인 후 표시됩니다.</small></span><button type="button" class="ghost hidden" id="engine-apply">추천대로 적용</button></div>
           <div class="row"><span>Claude Code 설치 확인<br><small class="muted" id="cc-status">확인 전</small></span><span><input id="cc-path" placeholder="자동으로 찾음 (직접 지정 시 claude.exe 경로)"> <button class="ghost" id="cc-check">확인</button></span></div>
           <label class="row"><span>Claude Code 모델<br><small class="muted">sonnet 추천(한도 절약), opus 는 한도를 빨리 씀</small></span>
