@@ -97,7 +97,7 @@ class ModelRouter {
   // req.freeOnly: 무료 공급자만 시도. 결과에 failover(전환 기록 문장 배열)가 붙는다.
   async call(role, req) {
     const grade = req && req.infoGrade;
-    const on = this.getConfig().failover !== false;
+    const on = this.getConfig().failover !== false && !(req && req.noFailover);   // noFailover: 연결 테스트처럼 "이 공급자 자체"를 확인할 때는 다른 공급자로 몰래 넘기지 않는다
     const tried = new Set(), notices = [];
     let fallback = false, firstErr = null;
     for (let hop = 0; hop < 8; hop++) {
@@ -137,7 +137,7 @@ class ModelRouter {
     const { roleCfg, provider, adapter } = r;
     provider.id = r.id;
     const full = { effort: roleCfg.effort || undefined, ...req };
-    delete full.freeOnly;
+    delete full.freeOnly; delete full.noFailover;
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -200,7 +200,7 @@ class ModelRouter {
       const a = res.answers.ok || {};
       return { ok: true, model: res.model, text: `${a.choice} (신뢰도 ${Math.round((a.confidence || 0) * 100)}%)` };
     }
-    const res = await this.call(role, { system: '짧게 답하세요.', messages: [{ role: 'user', content: [{ type: 'text', text: '연결 테스트입니다. "OK"라고만 답하세요.' }] }], maxTokens: 512 });
+    const res = await this.call(role, { system: '짧게 답하세요.', messages: [{ role: 'user', content: [{ type: 'text', text: '연결 테스트입니다. "OK"라고만 답하세요.' }] }], maxTokens: 512, noFailover: true });
     return { ok: true, model: res.model, text: res.content.filter(b => b.type === 'text').map(b => b.text).join('').slice(0, 100) };
   }
 }

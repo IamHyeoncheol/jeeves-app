@@ -44,7 +44,7 @@ const prepareScript = sel => `/*JV:prepare*/(() => {
   let c = [...document.querySelectorAll(q || 'textarea,[contenteditable="true"],[role="textbox"]')].filter(vis);
   c.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
   const input = c[0];
-  if (!input) return { ok: false, url: location.href };
+  if (!input) return { ok: false, url: location.href, n: { ta: document.querySelectorAll('textarea').length, ce: document.querySelectorAll('[contenteditable]').length, tb: document.querySelectorAll('[role=textbox]').length, vis: c.length, title: document.title } };
   const rq = ${JSON.stringify(sel.region || '')};
   window.__jvIn = input; window.__jvRegion = (rq && document.querySelector(rq)) || document.querySelector('main') || document.body;
   return { ok: true, url: location.href };
@@ -82,7 +82,7 @@ async function askWebChat(wc, text, opts = {}) {
   const need = msg => Object.assign(new ProviderError(msg, { retryable: false }), { kind: 'auth' });
   if (LOGIN_URL.test(wc.getURL())) throw need('로그인이 필요합니다. 지브스 브라우저에서 해당 사이트에 직접 로그인한 뒤 다시 시도하세요.');
   const prep = await run(prepareScript(sel));
-  if (!prep || !prep.ok) throw need(LOGIN_URL.test((prep && prep.url) || '') ? '로그인이 필요합니다. 지브스 브라우저에서 직접 로그인해 주세요.' : '대화 입력창을 찾지 못했습니다. 로그인 상태와 화면을 확인하거나, 공급자 설정에서 입력창 위치(selectors.input)를 지정하세요.');
+  if (!prep || !prep.ok) throw need(LOGIN_URL.test((prep && prep.url) || '') ? '로그인이 필요합니다. 지브스 브라우저에서 직접 로그인해 주세요.' : `대화 입력창을 찾지 못했습니다(주소 ${(prep && prep.url) || '?'}, 입력칸 후보: textarea ${prep && prep.n ? prep.n.ta : '?'}개·편집영역 ${prep && prep.n ? prep.n.ce : '?'}개·textbox ${prep && prep.n ? prep.n.tb : '?'}개, 그중 보이는 것 ${prep && prep.n ? prep.n.vis : '?'}개). 로그인 상태와 화면을 확인하세요.`);
   await run(fillScript(text));
   const how = await run(sendScript(sel));
   if (how === 'none') {
