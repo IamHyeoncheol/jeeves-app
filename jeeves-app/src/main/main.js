@@ -14,6 +14,7 @@ const { checkFolder, findBinary, snapshotDir } = require('./dev-engine');
 const { runChain } = require('./dev-chain');
 const { detectLocalModels, buildJuniorEngines } = require('../dev/local-ai');
 const { runTeam } = require('./dev-team');
+const { ideaCheck, frame: ideaFrame, withBanner: ideaBanner } = require('./idea');
 const { setWebChatHost } = require('../models/webchat');
 const { needsLiveInfo, GRADES, GRADE_INFO, gradeRank, engineGradeOk, engineMaxGrade, suspectDetail, recommendFor } = require('../models/recommend');
 
@@ -185,7 +186,28 @@ function sanitizeAtts(attachments) {
 }
 // 입력 글에 기밀·비밀 단어가 있는지 규칙으로만 살핀다(경고용, 자동 변경 없음)
 ipcMain.handle('grade:suspect', (_, text) => suspectDetail(text));
+// 💡 아이디어 모드: 공개(P) 질문만, 활용안 A 틀로 감싸 ExoLobe(아이디어 부문)에만 보낸다. 다른 공급자로 자동 전환하지 않고, 대화 기록도 함께 보내지 않는다.
+async function ideaSend({ text, projectId }) {
+  const chk = ideaCheck(text);
+  if (!chk.ok) return { ok: false, error: '아이디어 모드로 보낼 수 없습니다: ' + chk.reasons.join(' / ') };
+  const q = String(text).trim();
+  let res;
+  try { res = await router.call('idea', { system: '', messages: [{ role: 'user', content: [{ type: 'text', text: ideaFrame(q) }] }], maxTokens: 4096, infoGrade: 'P', noFailover: true }); }
+  catch (e) { return { ok: false, error: e.message }; }
+  const answer = ideaBanner(res.content.filter(b => b.type === 'text').map(b => b.text).join('\n'));
+  const meta = `💡 아이디어 · ${res.model} · 근거 미검증`;
+  let convId = null, title = '';
+  try {
+    const conv = convs.create({ title: ('💡 ' + q).replace(/\s+/g, ' ').trim(), projectId, grade: 'P' });
+    const hist = [{ role: 'user', content: [{ type: 'text', text: q }] }, { role: 'assistant', content: [{ type: 'text', text: answer }] }];
+    convs.saveTurn(conv.id, { grade: 'P', kind: 'chat', page: false, q, atts: [], a: answer, meta }, hist, 'P');
+    activeConvId = conv.id; convId = conv.id; title = conv.title; send('sidebar:changed');
+  } catch (e) { logErr('아이디어 저장', e); }
+  return { ok: true, text: answer, model: res.model, costKrw: null, notice: '', meta, convId, title };
+}
+ipcMain.handle('idea:check', (_, text) => ideaCheck(text));
 async function chatSend({ text, includePage, mode, infoGrade, lowerOk, gradeAck, liveAck, attachments, convId, projectId }) {
+  if (mode === 'idea') return ideaSend({ text, projectId });
   const role = mode === 'summarize' ? 'summarize' : 'chat';
   const grade = pickGrade(infoGrade);
   // 이 대화의 저장된 기록을 불러온다(없으면 첫 답을 받을 때 새로 만든다)
@@ -308,7 +330,7 @@ function logErr(where, e) { try { fs.appendFileSync(path.join(app.getPath('userD
 ipcMain.handle('chat:send', async (_, a) => {
   const r = await chatSend(a || {});
   try {
-    if (r && r.ok === false && r.error && !r.needGrade && !r.needConfirmLower && !r.needLive) {
+    if (r && r.ok === false && r.error && !r.needGrade && !r.needConfirmLower && !r.needLive && a.mode !== 'idea') {
       const text = String(a.text || '').trim(), atts = sanitizeAtts(a.attachments);
       const grade = pickGrade(a.infoGrade);
       const q = text || (a.mode === 'summarize' ? '이 페이지를 요약해 주세요.' : '');

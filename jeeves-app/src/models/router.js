@@ -53,7 +53,8 @@ class ModelRouter {
     if (!r) throw new ProviderError(`'${role}' 부문 설정이 없습니다.`);
     // 추천 모드: 키가 있는 공급자 중 필요 등급을 채우는 가장 싼 것(무료 우선)을 그때그때 고른다. 추천할 게 없으면 저장된 배정을 쓴다.
     const skip = new Set([...this.coolSet(), ...(opts.exclude || [])]);
-    if (r.mode === 'auto' || opts.fallback || opts.tier) {
+    const isIdea = role === 'idea';   // 아이디어 부문은 추천·자동 전환 없이 저장된 배정(웹 로그인형)만 쓴다
+    if (!isIdea && (r.mode === 'auto' || opts.fallback || opts.tier)) {
       const rec = recommendFor(cfg, role, grade, { exclude: skip, tier: opts.tier });
       if (rec) r = { ...r, provider: rec.provider, model: rec.model, effort: rec.provider === 'anthropic' ? r.effort : '' };
       else {
@@ -68,6 +69,7 @@ class ModelRouter {
     const p = cfg.providers[r.provider];
     if (!p) throw new ProviderError(`'${r.label}' 부문에 배정된 공급자(${r.provider})를 찾을 수 없습니다.`);
     if (p.disabled) throw new ProviderError(`'${p.label}' 공급자는 아직 사용할 수 없습니다.`);
+    if (p.type === 'webchat' && !isIdea) { const e = new ProviderError(`'${p.label}'은(는) 💡 아이디어 모드 전용입니다. '${r.label}' 부문은 [직접]에서 Anthropic 등 다른 공급자를 고르거나 [추천]으로 바꿔 주세요.`); e.kind = 'none'; throw e; }
     // 정보 등급 관문: 이 공급자가 다룰 수 없는 등급이면 자동·직접 배정 모두 막는다(코드가 판정)
     if (!gradeOk(p, grade)) throw new ProviderError(`정보 등급 ${grade}(${GRADE_INFO[grade].name})에는 '${p.label}'을(를) 쓸 수 없습니다. 설정에서 이 공급자의 허용 등급을 바꾸거나, 허용된 공급자를 배정해 주세요.`);
     const local = /127\.0\.0\.1|localhost/.test(p.baseUrl) || p.type === 'webchat';   // 웹 로그인형은 키 대신 브라우저 로그인
@@ -194,13 +196,14 @@ class ModelRouter {
   }
 
   async testRole(role) {
-    const { provider } = this.resolve(role);
+    const tg = role === 'idea' ? 'P' : undefined;   // 아이디어 부문은 공개(P) 전용이라 시작 등급과 무관하게 P 로 시험
+    const { provider } = this.resolve(role, tg);
     if (provider.type === 'jev') {
       const res = await this.call(role, { state: '사용자가 "연결 테스트"라고 입력함', questions: { ok: { type: 'choice', instructions: '연결 테스트입니다. ok 를 고르세요.', criteria: { ok: '정상', no: '비정상' } } } });
       const a = res.answers.ok || {};
       return { ok: true, model: res.model, text: `${a.choice} (신뢰도 ${Math.round((a.confidence || 0) * 100)}%)` };
     }
-    const res = await this.call(role, { system: '짧게 답하세요.', messages: [{ role: 'user', content: [{ type: 'text', text: '연결 테스트입니다. "OK"라고만 답하세요.' }] }], maxTokens: 512, noFailover: true });
+    const res = await this.call(role, { system: '짧게 답하세요.', messages: [{ role: 'user', content: [{ type: 'text', text: '연결 테스트입니다. "OK"라고만 답하세요.' }] }], maxTokens: 512, noFailover: true, infoGrade: tg });
     return { ok: true, model: res.model, text: res.content.filter(b => b.type === 'text').map(b => b.text).join('').slice(0, 100) };
   }
 }

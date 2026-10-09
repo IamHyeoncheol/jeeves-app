@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('jeeves', {
     routerStatus: () => ipcRenderer.invoke('router:status'),
     onNotice: fn => on('router:notice', fn)
   },
+  idea: { check: text => ipcRenderer.invoke('idea:check', text) },
   chat: {
     send: (text, opts) => ipcRenderer.invoke('chat:send', { text, ...opts }),
     reset: () => ipcRenderer.invoke('chat:reset'),

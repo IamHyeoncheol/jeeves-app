@@ -210,8 +210,9 @@ function setMode(m) {
   document.body.classList.toggle('mode-ask', m === 'ask');
   document.body.classList.toggle('mode-act', m === 'act');
   document.body.classList.toggle('mode-dev', m === 'dev');
+  document.body.classList.toggle('mode-idea', m === 'idea');
   $$('#mode button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-  $('#input').placeholder = m === 'dev' ? '개발할 내용을 구체적으로 적어 주세요. 예) 하루 일정을 시간 블록으로 짜는 플래너 앱을 만들어줘 (화면 시안 사진 첨부 가능)' : m === 'ask' ? '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)' : '시킬 일을 구체적으로 적어 주세요. 예) 네이버에서 가양역 근처 회의실 대여 3곳 찾아서 가격 비교';
+  $('#input').placeholder = m === 'idea' ? '💡 공개해도 되는 주제만 짧게 적어 주세요. 회사 이름·금액·고객 정보는 쓰지 마세요. 예) 수산물 건조 과정을 빠르게 하는 다른 분야의 원리' : m === 'dev' ? '개발할 내용을 구체적으로 적어 주세요. 예) 하루 일정을 시간 블록으로 짜는 플래너 앱을 만들어줘 (화면 시안 사진 첨부 가능)' : m === 'ask' ? '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)' : '시킬 일을 구체적으로 적어 주세요. 예) 네이버에서 가양역 근처 회의실 대여 3곳 찾아서 가격 비교';
 }
 $$('#mode button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
 setMode('ask');
@@ -339,6 +340,25 @@ function askLive() {
 }
 
 // 경고 카드: 기밀·비밀로 보이는 말이 있을 때 대화창에 띄운다. 반환: 'raise'(추천 등급으로 진행) | 'keep'(현재 등급 그대로) | 'cancel'
+// 💡 아이디어 보내기 전 확인 카드: 공유 계정(ExoLobe)에 그대로 입력됨을 알리고, 문장을 고칠 수 있게 한다. 취소하면 null.
+function askIdea(text) {
+  return new Promise(resolve => {
+    const card = document.createElement('div');
+    card.className = 'msg ai gradewarn';
+    card.innerHTML = `<b>💡 ExoLobe 에 보낼 질문을 확인해 주세요</b><br><small class="muted">공유 계정에 그대로 입력됩니다. 회사·고객·금액·내부 자료가 없는 공개용 문장인지 확인하고, 필요하면 고쳐 주세요.</small><textarea class="idea-q" rows="4" style="width:100%;margin-top:6px"></textarea><div class="gw-btns"></div>`;
+    const ta = card.querySelector('textarea'); ta.value = text;
+    const row = card.querySelector('.gw-btns');
+    const done = v => { card.querySelectorAll('button').forEach(x => x.disabled = true); ta.disabled = true; resolve(v); };
+    const mk = (label, cls, fn) => { const b = document.createElement('button'); b.textContent = label; b.className = cls; b.onclick = fn; row.appendChild(b); };
+    mk('이대로 보내기', 'primary', async () => {
+      const t = ta.value.trim(); const c = await api.idea.check(t);
+      if (!c.ok) { let w = card.querySelector('.idea-warn'); if (!w) { w = document.createElement('div'); w.className = 'idea-warn'; w.style.color = '#c0392b'; card.appendChild(w); } w.textContent = '아직 보낼 수 없습니다: ' + c.reasons.join(' / '); return; }
+      done(t);
+    });
+    mk('취소', 'ghost', () => done(null));
+    box.appendChild(card); scrollDown(); ta.focus();
+  });
+}
 function askGrade(d, where) {
   return new Promise(resolve => {
     const card = document.createElement('div');
@@ -443,7 +463,7 @@ async function sendMessage(textOverride, opts = {}) {
   // 기밀·비밀로 보이는 말이 있는데 등급이 낮으면 보내기 전에 경고하고, 추천 등급을 고르면 그대로 진행한다(규칙 검사, 정확하지 않음)
   let gradeAck = false;
   const attText = atts.filter(a => a.kind === 'text').map(a => a.text).join('\n');
-  if (text || attText) {
+  if ((text || attText) && mode !== 'idea') {
     const d = await api.grade.suspect(text + '\n' + attText);
     if (d && d.grade && gradeRank(d.grade) > gradeRank(chatGrade)) {
       const ch = await askGrade(d, attText ? '입력한 내용·첨부한 글' : '입력한 내용');
@@ -451,6 +471,21 @@ async function sendMessage(textOverride, opts = {}) {
       if (ch === 'raise') setChatGrade(d.grade);
       gradeAck = true;
     }
+  }
+  if (mode === 'idea' && !isSummary) {
+    // 💡 아이디어: 일반 등급 경고 대신 "공개 정보만" 규칙으로 막고, 보낼 문장을 사용자가 고쳐서 확인한 뒤에만 보낸다
+    const chk = await api.idea.check(text);
+    if (!chk.ok) { addErr('💡 아이디어 모드로 보낼 수 없습니다.\n- ' + chk.reasons.join('\n- ') + (chk.hits.length ? '\n(걸린 말: ' + chk.hits.join(', ') + ')' : '')); $('#input').value = text; return; }
+    const sendText = await askIdea(text);
+    if (sendText === null) { $('#input').value = text; return; }
+    addUser(sendText, '💡 아이디어(Idea) · 🔒P · ExoLobe', { kind: 'chat', page: false, attachments: [] });
+    const wait = document.createElement('div'); wait.className = 'msg ai typing'; box.appendChild(wait); scrollDown();
+    $('#send').disabled = true;
+    const r = await api.chat.send(sendText, { mode: 'idea', infoGrade: 'P', projectId: pendingProject || activeProject });
+    wait.remove(); $('#send').disabled = false;
+    if (r.ok) { if (r.convId) { curConvId = r.convId; pendingProject = null; } addAI(r.text, r.meta || r.model, true); }
+    else { addErr(r.error || '답변을 받지 못했습니다.'); $('#input').value = sendText; }
+    return;
   }
   if (mode === 'dev' && !isSummary) {
     if (!text) { addErr('개발할 내용을 입력해 주세요.'); return; }
@@ -971,7 +1006,7 @@ $('#restore-providers').onclick = async () => {
   if (r.ok) { cfg = r.config; renderProviders(); renderRoles(); $('#save-msg').textContent = '삭제했던 기본 공급자를 복원했습니다(키는 다시 입력해야 합니다).'; }
 };
 $('#info-grade').onchange = async () => { $('#grade-desc').textContent = GRADE_DESC[$('#info-grade').value]; await saveSettings(true); renderProviders(); renderRoles(); };
-$('#roles-all-auto').onclick = () => { $$('#roles .role').forEach(row => { row.dataset.mode = 'auto'; row._apply && row._apply(); }); $('#save-msg').textContent = '저장하면 모든 부문이 추천 배정으로 바뀝니다.'; };
+$('#roles-all-auto').onclick = () => { $$('#roles .role').forEach(row => { if (row.dataset.id === 'idea') return; row.dataset.mode = 'auto'; row._apply && row._apply(); }); $('#save-msg').textContent = '저장하면 모든 부문이 추천 배정으로 바뀝니다.'; };
 $('#open-settings').onclick = () => openSettings();
 async function refreshMcp() {
   const st = await api.mcp.status();

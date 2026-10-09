@@ -13,11 +13,13 @@ const ROLE_DEFAULTS = {
   agent:       { label: '작업 (브라우저 조작) 기본',     provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'medium' },
   agentStrong: { label: '작업 승격 (막혔을 때)',         provider: 'anthropic', model: 'claude-opus-5-5',   effort: 'medium' },
   summarize:   { label: '요약·정리 (페이지 요약)',        provider: 'anthropic', model: 'claude-haiku-4-5-20251001', effort: '' },
-  decide:      { label: '빠른 판단 (다음 클릭 고르기)',   provider: 'typesafe',  model: 'jev-latest',        effort: '' }
+  decide:      { label: '빠른 판단 (다음 클릭 고르기)',   provider: 'typesafe',  model: 'jev-latest',        effort: '' },
+  idea:        { label: '💡 아이디어 (공개 정보만)',      provider: 'exolobe-web', model: 'web',             effort: '' }
 };
 
 // 부문 배정 방식: 'auto' = 추천(키가 있는 공급자 중 필요 등급을 채우는 가장 싼 것, 무료 우선) / 'manual' = 직접 고른 공급자·모델
 for (const r of Object.values(ROLE_DEFAULTS)) r.mode = 'auto';
+ROLE_DEFAULTS.idea.mode = 'manual';   // 아이디어 부문은 추천 대상이 아니라 항상 직접 배정(기본 ExoLobe 웹 로그인)
 
 // tier: 'free' = 무료(비용 0원으로 계산) / 'paid' = 유료(단가표로 계산). 사용자가 공급자마다 바꿀 수 있다.
 //  (Gemini는 공식 가격 페이지상 무료 등급이 있어 기본 '무료', 요금을 내는 계정이면 '유료'로 바꿀 것. 나머지는 보수적으로 '유료')
@@ -143,6 +145,12 @@ class ConfigStore {
     for (const id of merged.removedProviders || []) delete merged.providers[id];
     // 지워진 공급자를 '직접 선택'으로 가리키던 부문은 추천 배정으로 돌린다
     for (const r of Object.values(merged.roles)) if (r.mode === 'manual' && !merged.providers[r.provider]) r.mode = 'auto';
+    // 웹 로그인형(ExoLobe 등)은 아이디어 부문 전용: 다른 부문에 배정돼 있으면 추천 배정으로 돌린다
+    for (const [rid, r] of Object.entries(merged.roles)) {
+      if (rid === 'idea') { r.mode = 'manual'; continue; }
+      const pr = merged.providers[r.provider];
+      if (pr && pr.type === 'webchat') { const d = ROLE_DEFAULTS[rid]; if (d) { r.provider = d.provider; r.model = d.model; r.effort = d.effort; } r.mode = 'auto'; this._dirty = true; }
+    }
     // 없어진 부문(예: 0.1 의 '제목 짓기')은 지운다
     for (const k of Object.keys(merged.roles)) if (!ROLE_DEFAULTS[k]) delete merged.roles[k];
     if (merged.providers.typesafe) delete merged.providers.typesafe.disabled;
