@@ -232,3 +232,6 @@ body.layout-web #panel { order: 3; border-left: 0; }
 #splitter:focus { outline: none; }
 body.resizing, body.resizing * { cursor: col-resize !important; user-select: none !important; }
 body.resizing #web-area::after { content: '크기 조절 중…'; position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); background: var(--surface); }
+
+.prov .offline { display: block; font-weight: 400; font-size: 11px; color: var(--muted, #666); margin-top: 3px; cursor: pointer; }
+.prov .offline input { width: auto; margin: 0 4px 0 0; vertical-align: middle; }

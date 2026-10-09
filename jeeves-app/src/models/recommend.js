@@ -19,7 +19,7 @@ const GRADE_LABEL = { strong: '고성능', standard: '표준', light: '경량', 
 const ORDER = Object.keys(CATALOG);
 
 const isLocal = p => /127\.0\.0\.1|localhost/.test((p && p.baseUrl) || '');
-const usable = p => !!p && !p.disabled && !!p.apiKey && p.apiKey !== 'ollama';
+const usable = p => !!p && !p.disabled && !p.off && !!p.apiKey && p.apiKey !== 'ollama';
 
 // cfg: 설정 원본(키 포함). 반환: { provider, model, tier, grade, reason } 또는 null(추천 불가)
 function recommendFor(cfg, role) {

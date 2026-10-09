@@ -132,6 +132,7 @@ class ConfigStore {
         if (typeof p.apiKey === 'string' && !(p.apiKey.startsWith('••••') || p.apiKey.startsWith('●'))) ok.apiKey = p.apiKey;   // 가린 값 그대로면 기존 키 유지
         if (typeof p.baseUrl === 'string') ok.baseUrl = p.baseUrl;
         if (p.tier === 'free' || p.tier === 'paid') ok.tier = p.tier;
+        if (typeof p.off === 'boolean') ok.off = p.off;   // 추천에서 제외(잔액 없는 유료 공급자 등)
         patch.providers[id] = ok;
       }
     }

@@ -277,6 +277,14 @@ function fakeFetch(handler) {
     assert.strictEqual(recommendFor(c, 'decide').provider, 'typesafe');
   });
 
+  await t('추천: "추천에서 제외"(off)한 공급자는 키가 있어도 추천되지 않고 다른 공급자로 대신함', () => {
+    const c = withKeys({ anthropic: 'k1', gemini: 'k2' });
+    c.providers.anthropic.off = true;
+    const r = recommendFor(c, 'agentStrong');
+    assert.strictEqual(r.provider, 'gemini');
+    assert.ok(r.reason.includes('대신함'));
+  });
+
   await t('추천: Gemini를 유료로 바꾸면 무료 우선이 사라져 Anthropic(목록 앞쪽)이 선택됨', () => {
     const c = withKeys({ anthropic: 'k1', gemini: 'k2' }, { gemini: 'paid' });
     assert.strictEqual(recommendFor(c, 'chat').provider, 'anthropic');

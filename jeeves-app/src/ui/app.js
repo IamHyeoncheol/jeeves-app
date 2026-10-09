@@ -403,7 +403,7 @@ function renderProviders() {
       : `<input data-k="apiKey" type="password" autocomplete="off" placeholder="${p.disabled ? '고도화 단계에서 연결' : 'API 키 붙여넣기'}" value="${esc(p.apiKey)}" ${p.disabled ? 'disabled' : ''}>`;
     return `
     <div class="prov ${p.disabled ? 'disabled' : ''}" data-id="${esc(id)}">
-      <div class="nm">${esc(p.label)}${tierBadge}${keyBadge}</div>
+      <div class="nm">${esc(p.label)}${tierBadge}${keyBadge}${p.disabled ? '' : `<label class="offline" title="체크하면 '추천'이 이 공급자를 고르지 않습니다. 크레딧(잔액)이 없는 유료 공급자에 쓰세요. 직접 고른 부문에는 영향 없음."><input type="checkbox" data-k="off" ${p.off ? 'checked' : ''}> 추천에서 제외</label>`}</div>
       ${keyInput}
       <input data-k="baseUrl" placeholder="주소" value="${esc(p.baseUrl)}" title="접속 주소(보통 바꿀 필요 없음)" ${p.disabled ? 'disabled' : ''}>
       <select data-k="tier" title="요금 유형: 무료는 비용 0원으로 계산·추천에서 우선, 유료는 단가표로 계산"><option value="free" ${tier === 'free' ? 'selected' : ''}>무료</option><option value="paid" ${tier === 'paid' ? 'selected' : ''}>유료</option></select>
@@ -416,6 +416,7 @@ function renderProviders() {
     el.addEventListener('input', () => { if (el.value !== el.dataset.shown) { el.type = 'password'; el.classList.remove('saved'); } });
   });
   // 요금 유형을 바꾸면 바로 저장하고 추천을 다시 계산해 보여 준다
+  $$('#providers [data-k=off]').forEach(cb => cb.addEventListener('change', async () => { await saveSettings(true); renderProviders(); renderRoles(); }));
   $$('#providers [data-k=tier]').forEach(sel => sel.addEventListener('change', async () => { await saveSettings(true); renderProviders(); renderRoles(); }));
   // 삭제: 처음 누르면 "삭제 확인"으로 바뀌고, 3.5초 안에 한 번 더 누르면 삭제
   $$('#providers [data-del]').forEach(b => b.addEventListener('click', async () => {
@@ -473,7 +474,7 @@ function renderRoles() {
     const res = b.parentElement.querySelector('.res');
     res.textContent = '테스트 중…';
     const r = await api.config.test(b.dataset.test);
-    res.textContent = r.ok ? `✅ 연결됨 — ${r.model} (응답: ${r.text})` : `❌ ${r.error}`;
+    res.textContent = r.ok ? `✅ 연결됨 — ${r.model} (응답: ${r.text})` : `❌ ${r.error}` + (/크레딧|credit/i.test(r.error || '') ? ' → 위 공급자 칸의 "추천에서 제외"를 체크하면 추천이 다른 공급자로 바뀝니다.' : '');
   });
 }
 async function openSettings(msg) {
@@ -509,6 +510,7 @@ async function saveSettings(quiet) {
     // 저장된 키를 건드리지 않았으면 가려진 표시값 대신 '기존 키 유지' 신호(••••••••)를 보낸다
     const keyVal = keyEl.dataset.shown && keyEl.value.trim() === keyEl.dataset.shown ? keyEl.dataset.orig : keyEl.value.trim();
     patch.providers[id] = { apiKey: keyVal, baseUrl: row.querySelector('[data-k=baseUrl]').value.trim(), tier: row.querySelector('[data-k=tier]').value };
+    const offEl = row.querySelector('[data-k=off]'); if (offEl) patch.providers[id].off = offEl.checked;
   });
   $$('#roles .role').forEach(row => {
     const id = row.dataset.id, mode = row.dataset.mode === 'manual' ? 'manual' : 'auto';
