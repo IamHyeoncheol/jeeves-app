@@ -352,3 +352,9 @@ body.layout-web #sidebar, #sidebar.collapsed { display: none; }
 .sb-fold { border: 0; background: none; color: var(--muted); cursor: pointer; width: 18px; height: 18px; padding: 0; font-size: 12px; line-height: 1; border-radius: 4px; flex: none; }
 .sb-fold:hover { background: var(--surface-2); }
 .sb-sec.collapsed > :not(.sb-h) { display: none; }
+
+/* 접기/펴기 단추: 작은 네모 안의 화살표(접힘 ▶ / 펼침 ▼로 돌아감) */
+.sb-fold { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 1px solid var(--line); background: var(--bg); color: var(--ink-2); border-radius: 5px; }
+.sb-fold svg { transition: transform .15s; }
+.sb-fold.open svg { transform: rotate(90deg); }
+.sb-fold:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }

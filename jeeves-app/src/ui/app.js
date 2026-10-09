@@ -1123,12 +1123,12 @@ function applySbFold() {
     const el = document.querySelector('.sb-sec.sec-' + k); if (!el) continue;
     const open = searching || !!sbSecOpen[k];
     el.classList.toggle('collapsed', !open);
-    const b = el.querySelector('.sb-fold'); if (b) { b.textContent = open ? '▾' : '▸'; b.title = open ? '접기' : '펴기'; b.setAttribute('aria-expanded', String(open)); }
+    const b = el.querySelector('.sb-fold'); if (b) { b.classList.toggle('open', open); b.title = open ? '접기' : '펴기'; b.setAttribute('aria-expanded', String(open)); }
   }
 }
 for (const k of SB_SECS) {
   const h = document.querySelector('.sb-sec.sec-' + k + ' .sb-h'); if (!h) continue;
-  const b = document.createElement('button'); b.type = 'button'; b.className = 'sb-fold'; h.insertBefore(b, h.firstChild);
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'sb-fold'; b.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>'; h.insertBefore(b, h.firstChild);
   h.style.cursor = 'pointer';
   h.addEventListener('click', e => {
     if (e.target.closest('button') && !e.target.closest('.sb-fold')) return;   // ＋ 같은 다른 단추는 그대로 동작
