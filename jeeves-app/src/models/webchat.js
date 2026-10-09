@@ -41,10 +41,10 @@ function extractAnswer(regionText, question) {
 const prepareScript = sel => `/*JV:prepare*/(() => {
   const vis = el => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 40 && r.height > 14 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
   const q = ${JSON.stringify(sel.input || '')};
-  let c = [...document.querySelectorAll(q || 'textarea,[contenteditable="true"],[role="textbox"]')].filter(vis);
+  let c = [...document.querySelectorAll(q || 'textarea,[contenteditable]:not([contenteditable=false]),[role="textbox"],input[type=text],input:not([type])')].filter(vis);
   c.sort((a, b) => b.getBoundingClientRect().bottom - a.getBoundingClientRect().bottom);
   const input = c[0];
-  if (!input) return { ok: false, url: location.href, n: { ta: document.querySelectorAll('textarea').length, ce: document.querySelectorAll('[contenteditable]').length, tb: document.querySelectorAll('[role=textbox]').length, vis: c.length, title: document.title } };
+  if (!input) return { ok: false, url: location.href, n: { ta: document.querySelectorAll('textarea').length, ce: document.querySelectorAll('[contenteditable]').length, tb: document.querySelectorAll('[role=textbox]').length, ip: document.querySelectorAll('input').length, vis: c.length, len: (document.body && document.body.innerText || '').length, title: document.title } };
   const rq = ${JSON.stringify(sel.region || '')};
   window.__jvIn = input; window.__jvRegion = (rq && document.querySelector(rq)) || document.querySelector('main') || document.body;
   return { ok: true, url: location.href };
@@ -81,8 +81,10 @@ async function askWebChat(wc, text, opts = {}) {
   const run = s => wc.executeJavaScript(s, true);
   const need = msg => Object.assign(new ProviderError(msg, { retryable: false }), { kind: 'auth' });
   if (LOGIN_URL.test(wc.getURL())) throw need('로그인이 필요합니다. 지브스 브라우저에서 해당 사이트에 직접 로그인한 뒤 다시 시도하세요.');
-  const prep = await run(prepareScript(sel));
-  if (!prep || !prep.ok) throw need(LOGIN_URL.test((prep && prep.url) || '') ? '로그인이 필요합니다. 지브스 브라우저에서 직접 로그인해 주세요.' : `대화 입력창을 찾지 못했습니다(주소 ${(prep && prep.url) || '?'}, 입력칸 후보: textarea ${prep && prep.n ? prep.n.ta : '?'}개·편집영역 ${prep && prep.n ? prep.n.ce : '?'}개·textbox ${prep && prep.n ? prep.n.tb : '?'}개, 그중 보이는 것 ${prep && prep.n ? prep.n.vis : '?'}개). 로그인 상태와 화면을 확인하세요.`);
+  // 화면이 아직 그려지지 않았을 수 있어(요즘 사이트는 열린 뒤에 입력칸을 그림) 입력칸이 나타날 때까지 최대 20초 기다린다
+  let prep = await run(prepareScript(sel));
+  for (let i = 0; i < Math.ceil((opts.prepareWaitMs == null ? 20000 : opts.prepareWaitMs) / 1000) && (!prep || !prep.ok) && !LOGIN_URL.test((prep && prep.url) || ''); i++) { await sleep(1000); prep = await run(prepareScript(sel)); }
+  if (!prep || !prep.ok) throw need(LOGIN_URL.test((prep && prep.url) || '') ? '로그인이 필요합니다. 지브스 브라우저에서 직접 로그인해 주세요.' : `대화 입력창을 찾지 못했습니다(주소 ${(prep && prep.url) || '?'}, 입력칸 후보: textarea ${prep && prep.n ? prep.n.ta : '?'}개·편집영역 ${prep && prep.n ? prep.n.ce : '?'}개·textbox ${prep && prep.n ? prep.n.tb : '?'}개·input ${prep && prep.n ? prep.n.ip : '?'}개, 화면 글자 수 ${prep && prep.n ? prep.n.len : '?'}, 그중 보이는 것 ${prep && prep.n ? prep.n.vis : '?'}개). 로그인 상태와 화면을 확인하세요.`);
   await run(fillScript(text));
   const how = await run(sendScript(sel));
   if (how === 'none') {

@@ -44,6 +44,14 @@ const Q = '1인 기업 사업 모델을 추천해줘';
     await assert.rejects(() => askWebChat(fakeWc({ hasInput: false }), Q, { sleep }), e => e.kind === 'auth' && /입력창/.test(e.message));
   });
 
+  await t('화면이 늦게 그려져도(입력칸이 몇 초 뒤 나타남) 기다렸다가 진행', async () => {
+    const wc = fakeWc({ steps: [{ text: s => `${s}\n답입니다` }] });
+    const orig = wc.executeJavaScript; let n = 0;
+    wc.executeJavaScript = async s => (s.startsWith('/*JV:prepare*/') && n++ < 3) ? { ok: false, url: 'https://x.com/chat' } : orig(s);
+    const r = await askWebChat(wc, Q, { sleep, stableMs: 2000, pollMs: 1000 });
+    assert.strictEqual(r, '답입니다'); assert.ok(n >= 4);
+  });
+
   await t('시간 초과: 받은 부분이 있으면 돌려주고, 아무것도 없으면 오류', async () => {
     const a = await askWebChat(fakeWc({ steps: [{ text: s => `${s}\n조금`, busy: true }] }), Q, { sleep, timeoutMs: 5000, pollMs: 1000 });
     assert.strictEqual(a, '조금');
