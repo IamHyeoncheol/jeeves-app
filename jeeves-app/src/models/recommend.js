@@ -119,4 +119,8 @@ function recommendEngine(claudeFound) {
     : { type: 'api', reason: 'Claude Code가 설치돼 있지 않아 API 키 방식으로 동작함' };
 }
 
-module.exports = { CATALOG, NEED, GRADES, GRADE_INFO, gradeRank, effectiveMaxGrade, gradeOk, engineMaxGrade, engineGradeOk, suspectGrade, suspectDetail, recommendFor, recommendAll, recommendEngine };
+// 실시간 정보가 필요한 질문인지 규칙으로만 살핀다(질문 모드 AI 는 인터넷을 못 보므로 작업 모드로 안내하기 위함)
+const LIVE_RE = /날씨|기온|미세먼지|강수|비 와|눈 와|환율|주가|시세|코인|비트코인|증시|지금.{0,6}(몇|얼마|어때|어디)|현재.{0,6}(가격|시세|상황|뉴스)|오늘.{0,8}(뉴스|소식|일정|가격|환율|날씨|어때)|최신.{0,6}(뉴스|소식|버전|정보)|실시간|검색해|찾아봐|찾아 줘|찾아줘/;
+function needsLiveInfo(text) { return LIVE_RE.test(String(text || '')); }
+
+module.exports = { needsLiveInfo, CATALOG, NEED, GRADES, GRADE_INFO, gradeRank, effectiveMaxGrade, gradeOk, engineMaxGrade, engineGradeOk, suspectGrade, suspectDetail, recommendFor, recommendAll, recommendEngine };

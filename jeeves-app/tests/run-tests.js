@@ -4,7 +4,7 @@ const { ModelRouter } = require('../src/models/router');
 const { toOpenAIMessages } = require('../src/models/providers');
 const { DEFAULTS, ConfigStore, parseKeyFile } = require('../src/main/config');
 const { costUsd } = require('../src/models/pricing');
-const { recommendFor, recommendAll, recommendEngine, effectiveMaxGrade, gradeOk, engineGradeOk, engineMaxGrade, suspectGrade, suspectDetail } = require('../src/models/recommend');
+const { needsLiveInfo, recommendFor, recommendAll, recommendEngine, effectiveMaxGrade, gradeOk, engineGradeOk, engineMaxGrade, suspectGrade, suspectDetail } = require('../src/models/recommend');
 const fs = require('fs'), os = require('os'), path = require('path');
 const { formatObservation, TOOLS } = require('../src/agent/agent');
 
@@ -533,6 +533,11 @@ function fakeFetch(handler) {
     assert.ok(d.hits.includes('계약서') && d.hits.includes('단가') && d.hits.includes('비밀번호'));
     assert.ok(!d.hits.some(h => h.startsWith('sk-')));
     assert.deepStrictEqual(suspectDetail('오늘 날씨'), { grade: null, hits: [] });
+  });
+
+  await t('실시간 질문 감지: 날씨·시세·검색 요청은 작업 모드 안내, 일반 질문은 그대로', () => {
+    for (const q of ['오늘 하루 날씨가 어때?', '지금 환율 얼마야', '최신 뉴스 알려줘', '삼성전자 주가', '이거 검색해 줘']) assert.ok(needsLiveInfo(q), q);
+    for (const q of ['이 글을 요약해 줘', '누설전류가 뭐야?', '메일 초안 써 줘']) assert.ok(!needsLiveInfo(q), q);
   });
 
   await t('자동 배정: 추천할 공급자가 없을 때 "추천에서 제외"한 공급자로는 가지 않고 해결 방법을 안내', () => {

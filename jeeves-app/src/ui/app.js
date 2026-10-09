@@ -239,6 +239,21 @@ function addErr(text) {
 }
 box.addEventListener('click', e => { if (e.target.matches('[data-open-settings]')) openSettings(); });
 
+// 안내 카드: 실시간 정보가 필요한 질문. 반환: 'act'(작업 모드로 검색) | 'ask'(질문 모드 그대로) | 'cancel'
+function askLive() {
+  return new Promise(resolve => {
+    const card = document.createElement('div');
+    card.className = 'msg ai gradewarn';
+    card.innerHTML = '<b>🌐 인터넷 검색이 필요한 질문입니다</b><br>질문 모드의 AI는 인터넷을 볼 수 없어 날씨·시세·최신 뉴스는 답하지 못합니다. <b>작업 모드</b>(구글 검색)로 보내면 직접 찾아 드립니다.<div class="gw-btns"></div>';
+    const row = card.querySelector('.gw-btns');
+    const mk = (label, cls, val) => { const b = document.createElement('button'); b.textContent = label; b.className = cls; b.onclick = () => { card.querySelectorAll('button').forEach(x => x.disabled = true); card.insertAdjacentHTML('beforeend', `<div class="muted small">선택: ${esc(label)}</div>`); resolve(val); }; row.appendChild(b); };
+    mk('작업 모드로 검색 (추천)', 'primary', 'act');
+    mk('그래도 질문으로', 'ghost', 'ask');
+    mk('취소', 'ghost', 'cancel');
+    box.appendChild(card); scrollDown();
+  });
+}
+
 // 경고 카드: 기밀·비밀로 보이는 말이 있을 때 대화창에 띄운다. 반환: 'raise'(추천 등급으로 진행) | 'keep'(현재 등급 그대로) | 'cancel'
 function askGrade(d, where) {
   return new Promise(resolve => {
@@ -290,6 +305,28 @@ async function sendMessage(textOverride, opts = {}) {
   $('#send').disabled = true;
   const chatOpts = { includePage: $('#include-page').checked, mode: isSummary ? 'summarize' : 'chat', infoGrade: chatGrade, gradeAck };
   let res = await api.chat.send(text, chatOpts);
+  if (res.needLive) {
+    // 실시간 정보 질문: 질문 모드는 인터넷을 못 보므로 작업 모드(검색 가능)로 보낼지 묻는다
+    const ch = await askLive();
+    wait.remove(); $('#send').disabled = false;
+    if (ch === 'act') {
+      const goal = `구글에서 검색해서 확인하고 결과를 쉽게 정리해 줘: ${text}`;
+      const where = $('#where').value;
+      addUser(goal, (where === 'current' ? '🤖 작업 · 지금 탭' : '🤖 작업 · 백그라운드 탭') + ` · 🔒${chatGrade}`);
+      const r = await api.agent.start(goal, where, chatGrade);
+      if (r.error) addErr(r.error); else ensureCard(r.id, { goal });
+      return;
+    }
+    if (ch === 'cancel') { $('#input').value = text; return; }
+    // 'ask': 그래도 질문 모드로 → 아는 범위에서만 답함
+    addUser(text, '💬 질문 · 🔒' + chatGrade);
+    const w2 = document.createElement('div'); w2.className = 'msg ai typing'; box.appendChild(w2); scrollDown();
+    $('#send').disabled = true;
+    const r2 = await api.chat.send(text, { ...chatOpts, liveAck: true });
+    w2.remove(); $('#send').disabled = false;
+    if (r2.ok) addAI(r2.text, r2.model + (r2.costKrw != null ? ` · 약 ${r2.costKrw}원` : '')); else addErr(r2.error || '답변을 받지 못했습니다.');
+    return;
+  }
   if (res.needGrade) {
     // 보려는 페이지 내용 속에 기밀·비밀로 보이는 말이 있음 → 경고 후 선택
     const ch = await askGrade(res, '현재 페이지 내용');
