@@ -162,7 +162,9 @@ $('#pv-main').onclick = () => openTabBig(activeId());
 
 // ── 구분선 끌어서 크기 조절 ──
 // 작업 화면 중심: 오른쪽 미리보기 폭 / 웹 크게 보기: 오른쪽 작업창 폭
-const SIZE = { preview: { def: 400, min: 260, keepOther: 420 }, panel: { def: 420, min: 340, keepOther: 420 } };
+// min: 끝까지 좁힐 수 있는 폭(얇은 띠만 남김, 구분선은 계속 잡을 수 있음) / keepOther: 반대쪽이 최소한 남을 폭
+const SIZE = { preview: { def: 400, min: 24, keepOther: 240 }, panel: { def: 420, min: 24, keepOther: 240 } };
+const NARROW = 150;   // 이보다 좁으면 안의 내용을 숨기고 띠만 보여 줌
 const sizes = { preview: 400, panel: 420 };
 function thumbW(el) { return Math.min(1440, Math.max(200, Math.round((el ? el.clientWidth : 400) * (window.devicePixelRatio || 1)))); }
 function applySizes() {
@@ -170,6 +172,8 @@ function applySizes() {
   for (const k of ['preview', 'panel']) sizes[k] = Math.round(Math.min(Math.max(sizes[k], SIZE[k].min), Math.max(SIZE[k].min, total - SIZE[k].keepOther)));
   document.body.style.setProperty('--preview-w', sizes.preview + 'px');
   document.body.style.setProperty('--panel-w', sizes.panel + 'px');
+  document.body.classList.toggle('pv-narrow', sizes.preview < NARROW);
+  document.body.classList.toggle('panel-narrow', sizes.panel < NARROW);
   requestAnimationFrame(pushBounds);
 }
 function saveSizes() { if (cfg && cfg.ui) api.config.update({ ui: { previewWidth: sizes.preview, panelWidth: sizes.panel } }).then(c => { cfg = c; }); }

@@ -358,3 +358,9 @@ body.layout-web #sidebar, #sidebar.collapsed { display: none; }
 .sb-fold svg { transition: transform .15s; }
 .sb-fold.open svg { transform: rotate(90deg); }
 .sb-fold:hover { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+
+/* 구분선을 끝까지 밀어 한쪽을 얇은 띠로 만들 수 있음(내용은 숨기고, 구분선을 다시 끌면 복원) */
+body.pv-narrow.layout-chat #preview { padding: 0; overflow: hidden; background: var(--surface-2); }
+body.pv-narrow.layout-chat #preview > * { display: none; }
+body.panel-narrow.layout-web #panel { overflow: hidden; background: var(--surface-2); }
+body.panel-narrow.layout-web #panel > * { display: none; }
