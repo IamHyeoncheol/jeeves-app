@@ -37,7 +37,8 @@ const DEFAULTS = {
     moonshot: { type: 'openai', label: 'Kimi (Moonshot AI)', baseUrl: 'https://api.moonshot.ai/v1', apiKey: '', tier: 'paid', maxGrade: 'P' },
     deepseek: { type: 'openai', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', apiKey: '', tier: 'paid', maxGrade: 'P' },
     // ExoLobe(magnumatics.com): API 가 아니라 웹 로그인 후 대화창으로 쓰는 AI. 로그인은 지브스 브라우저에서 직접. 공유 계정이라 공개(P) 정보만, 답은 근거 미검증(활용안 A 규칙)
-    exolobe: { type: 'webchat', label: 'ExoLobe (웹 로그인형)', baseUrl: 'https://www.magnumatics.com/chat', apiKey: '', tier: 'free', maxGrade: 'P' },
+    // id 를 exolobe-web 으로 둔 이유: 예전에 사용자가 직접 추가한 'exolobe'(API 방식, 키 없음)와 겹치지 않게
+    'exolobe-web': { type: 'webchat', label: 'ExoLobe 웹 로그인 (키 필요 없음)', baseUrl: 'https://www.magnumatics.com/chat', apiKey: '', tier: 'free', maxGrade: 'P' },
     ollama: { type: 'openai', label: 'Ollama (내 PC 로컬 모델)', baseUrl: 'http://127.0.0.1:11434/v1', apiKey: 'ollama', tier: 'free' }
   },
   removedProviders: [],   // 사용자가 지운 기본 공급자 id (다시 살아나지 않게 기록)
@@ -227,7 +228,7 @@ class ConfigStore {
     spec = spec || {};
     const label = String(spec.label || '').trim().slice(0, 40);
     if (!label) throw new Error('이름을 입력해 주세요.');
-    if (spec.type !== 'openai' && spec.type !== 'anthropic') throw new Error('통신 방식은 "OpenAI 호환" 또는 "Anthropic 방식" 중에서 골라 주세요.');
+    if (spec.type !== 'openai' && spec.type !== 'anthropic' && spec.type !== 'webchat') throw new Error('통신 방식은 "OpenAI 호환", "Anthropic 방식", "웹 로그인형" 중에서 골라 주세요.');
     const baseUrl = String(spec.baseUrl || '').trim().replace(/\/+$/, '');
     // 키가 평문으로 외부에 나가지 않도록 https 만 허용한다(내 PC 로컬만 http 허용)
     const httpsOk = /^https:\/\/[^\s\/]+(\/\S*)?$/.test(baseUrl);
@@ -236,7 +237,7 @@ class ConfigStore {
     const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'custom';
     let id = base, n = 2;
     while (this.data.providers[id] || DEFAULTS.providers[id]) id = `${base}-${n++}`;
-    this.data.providers[id] = { type: spec.type, label, baseUrl, apiKey: String(spec.apiKey || '').trim(), tier: spec.tier === 'free' ? 'free' : 'paid', custom: true };
+    this.data.providers[id] = { type: spec.type, label, baseUrl, apiKey: String(spec.apiKey || '').trim(), tier: spec.tier === 'free' ? 'free' : 'paid', custom: true, ...(spec.type === 'webchat' ? { maxGrade: 'P' } : {}) };   // 웹 로그인형은 공개(P)만
     this.save();
     return { id, config: this.getPublic() };
   }
