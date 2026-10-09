@@ -146,6 +146,6 @@ async function callJev(p, model, req, fetchImpl) {
   };
 }
 
-const ADAPTERS = { anthropic: callAnthropic, openai: callOpenAI, jev: callJev };
+const ADAPTERS = { anthropic: callAnthropic, openai: callOpenAI, jev: callJev, webchat: (...a) => require('./webchat').callWebChat(...a) };   // webchat: 웹사이트에 로그인해서 쓰는 대화창형 AI(API 키 없음)
 
 module.exports = { ADAPTERS, ProviderError, toOpenAIMessages, EFFORT_MODELS };

@@ -36,6 +36,8 @@ const DEFAULTS = {
     // Kimi(Moonshot)·DeepSeek(중국): 공개(P) 정보 전용, 추천 대상 아님(직접 선택만). 주소·모델명은 일반 지식 기준이라 연결 테스트로 확인 필요(공식 문서 미확인)
     moonshot: { type: 'openai', label: 'Kimi (Moonshot AI)', baseUrl: 'https://api.moonshot.ai/v1', apiKey: '', tier: 'paid', maxGrade: 'P' },
     deepseek: { type: 'openai', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', apiKey: '', tier: 'paid', maxGrade: 'P' },
+    // ExoLobe(magnumatics.com): API 가 아니라 웹 로그인 후 대화창으로 쓰는 AI. 로그인은 지브스 브라우저에서 직접. 공유 계정이라 공개(P) 정보만, 답은 근거 미검증(활용안 A 규칙)
+    exolobe: { type: 'webchat', label: 'ExoLobe (웹 로그인형)', baseUrl: 'https://www.magnumatics.com/chat', apiKey: '', tier: 'free', maxGrade: 'P' },
     ollama: { type: 'openai', label: 'Ollama (내 PC 로컬 모델)', baseUrl: 'http://127.0.0.1:11434/v1', apiKey: 'ollama', tier: 'free' }
   },
   removedProviders: [],   // 사용자가 지운 기본 공급자 id (다시 살아나지 않게 기록)

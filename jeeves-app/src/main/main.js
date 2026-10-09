@@ -14,6 +14,7 @@ const { checkFolder, findBinary, snapshotDir } = require('./dev-engine');
 const { runChain } = require('./dev-chain');
 const { detectLocalModels, buildJuniorEngines } = require('../dev/local-ai');
 const { runTeam } = require('./dev-team');
+const { setWebChatHost } = require('../models/webchat');
 const { needsLiveInfo, GRADES, GRADE_INFO, gradeRank, engineGradeOk, engineMaxGrade, suspectDetail, recommendFor } = require('../models/recommend');
 
 const PARTITION = 'persist:jeeves-main'; // 로그인 상태가 유지되는 브라우저 저장 공간
@@ -649,6 +650,16 @@ app.whenReady().then(async () => {
   convs.onError = e => logErr('대화 파일 쓰기', e);
   config = new ConfigStore(userData, safeStorage);
   router = new ModelRouter(() => config.get(), (url, opts) => net.fetch(url, opts));
+  // 웹 로그인형 공급자: 로그인이 유지되는 지브스 브라우저 탭 하나를 전용으로 쓰고, 질문마다 새 대화 화면으로 시작한다
+  let wcTabId = null;
+  setWebChatHost(async p => {
+    let tab = wcTabId && tabs.get(wcTabId);
+    if (!tab || tab.view.webContents.isDestroyed()) { tab = tabs.create('about:blank', { agent: true, activate: false }); wcTabId = tab.id; }
+    const wc = tab.view.webContents;
+    await new Promise(res => { let done = false; const fin = () => { if (!done) { done = true; res(); } }; wc.once('did-finish-load', fin); wc.once('did-fail-load', fin); wc.loadURL(p.baseUrl).catch(fin); setTimeout(fin, 20000); });
+    await new Promise(r => setTimeout(r, 1500));   // 화면이 그려질 시간
+    return wc;
+  });
   router.onNotice = msg => send('router:notice', msg);   // 자동 전환 알림(화면에 표시)
   setupSession();
   createWindow();

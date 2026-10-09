@@ -70,7 +70,7 @@ class ModelRouter {
     if (p.disabled) throw new ProviderError(`'${p.label}' 공급자는 아직 사용할 수 없습니다.`);
     // 정보 등급 관문: 이 공급자가 다룰 수 없는 등급이면 자동·직접 배정 모두 막는다(코드가 판정)
     if (!gradeOk(p, grade)) throw new ProviderError(`정보 등급 ${grade}(${GRADE_INFO[grade].name})에는 '${p.label}'을(를) 쓸 수 없습니다. 설정에서 이 공급자의 허용 등급을 바꾸거나, 허용된 공급자를 배정해 주세요.`);
-    const local = /127\.0\.0\.1|localhost/.test(p.baseUrl);
+    const local = /127\.0\.0\.1|localhost/.test(p.baseUrl) || p.type === 'webchat';   // 웹 로그인형은 키 대신 브라우저 로그인
     if (!p.apiKey && !local) throw new ProviderError(`${p.label} API 키가 없습니다. 설정(⚙)에서 입력해 주세요.`);
     const adapter = ADAPTERS[p.type];
     if (!adapter) throw new ProviderError(`지원하지 않는 공급자 방식: ${p.type}`);
@@ -169,7 +169,7 @@ class ModelRouter {
     const grade = GRADES.includes(req && req.infoGrade) ? req.infoGrade : (GRADES.includes(cfg.infoGrade) ? cfg.infoGrade : 'P');
     if (p.disabled || p.off) { const e = new ProviderError(`'${p.label}' 은(는) 지금 쓸 수 없습니다.`); e.kind = 'none'; throw e; }
     if (!gradeOk(p, grade)) { const e = new ProviderError(`정보 등급 ${grade}(${GRADE_INFO[grade].name})에는 '${p.label}'을(를) 쓸 수 없습니다.`); e.kind = 'none'; throw e; }
-    const local = /127\.0\.0\.1|localhost/.test(p.baseUrl || '');
+    const local = /127\.0\.0\.1|localhost/.test(p.baseUrl || '') || p.type === 'webchat';
     if (!p.apiKey && !local) { const e = new ProviderError(`${p.label} API 키가 없습니다.`); e.kind = 'auth'; throw e; }
     if (this.coolSet().has(id)) { const e = new ProviderError(`'${p.label}' 은(는) 지금 쉬는 중입니다.`); e.kind = 'resting'; e.providerId = id; throw e; }
     const adapter = ADAPTERS[p.type];

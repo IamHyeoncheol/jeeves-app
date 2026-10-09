@@ -755,10 +755,11 @@ function renderProviders() {
     // 저장된 키는 ●●●●(일정한 길이, 끝자리 없음)로 눈에 띄게 보여 주고, 비어 있으면 '미입력'으로 구분한다 (키는 화면에 오지 않음)
     const saved = !!p.hasKey && id !== 'ollama' && !p.disabled;
     const shown = saved ? '●●●●●●●●●●●●●●' : '';
-    const keyBadge = id === 'ollama' ? '' : saved ? ' <span class="badge ok">✔ 저장됨</span>' : (p.disabled ? '' : ' <span class="badge">미입력</span>');
+    const web = p.type === 'webchat';   // 웹 로그인형: 키 없이 지브스 브라우저에서 직접 로그인
+    const keyBadge = web ? ' <span class="badge ok">웹 로그인형</span>' : id === 'ollama' ? '' : saved ? ' <span class="badge ok">✔ 저장됨</span>' : (p.disabled ? '' : ' <span class="badge">미입력</span>');
     const tier = p.tier === 'free' ? 'free' : 'paid';
     const tierBadge = ` <span class="badge ${tier === 'free' ? 'ok' : 'paid'}">${tier === 'free' ? '무료' : '유료'}</span>`;
-    const keyInput = saved
+    const keyInput = web ? `<input data-k="apiKey" type="text" disabled placeholder="키 없음 — 지브스 브라우저에서 직접 로그인" value="">` : saved
       ? `<input data-k="apiKey" class="saved" type="text" autocomplete="off" spellcheck="false" value="${esc(shown)}" data-shown="${esc(shown)}" data-orig="${esc(p.apiKey)}" title="저장된 키입니다. 바꾸려면 이 칸을 클릭하고 새 키를 붙여넣으세요.">`
       : `<input data-k="apiKey" type="password" autocomplete="off" placeholder="${p.disabled ? '고도화 단계에서 연결' : 'API 키 붙여넣기'}" value="${esc(p.apiKey)}" ${p.disabled ? 'disabled' : ''}>`;
     return `
