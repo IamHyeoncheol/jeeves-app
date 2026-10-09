@@ -242,6 +242,23 @@ function addErr(text) {
 }
 box.addEventListener('click', e => { if (e.target.matches('[data-open-settings]')) openSettings(); });
 
+// 경고 카드: 기밀·비밀로 보이는 말이 있을 때 대화창에 띄운다. 반환: 'raise'(추천 등급으로 진행) | 'keep'(현재 등급 그대로) | 'cancel'
+function askGrade(d, where) {
+  return new Promise(resolve => {
+    const card = document.createElement('div');
+    card.className = 'msg ai gradewarn';
+    const words = (d.hits || []).map(h => `<code>${esc(h)}</code>`).join(' ');
+    card.innerHTML = `<b>🔒 조심할 내용이 있습니다</b><br>${esc(where)}에 ${words || '민감해 보이는 말'}이(가) 있어, <b>${d.suggest || d.grade} (${GRADE_TXT[d.suggest || d.grade]})</b> 등급을 권합니다.<br><small class="muted">${GRADE_DESC[d.suggest || d.grade]}</small><div class="gw-btns"></div>`;
+    const g = d.suggest || d.grade;
+    const row = card.querySelector('.gw-btns');
+    const mk = (label, cls, val) => { const b = document.createElement('button'); b.textContent = label; b.className = cls; b.onclick = () => { card.querySelectorAll('button').forEach(x => x.disabled = true); card.insertAdjacentHTML('beforeend', `<div class="muted small">선택: ${esc(label)}</div>`); resolve(val); }; row.appendChild(b); };
+    mk(`${g} ${GRADE_TXT[g]}(으)로 진행 (추천)`, 'primary', 'raise');
+    mk(`지금 등급 ${chatGrade} 그대로 진행`, 'ghost', 'keep');
+    mk('취소', 'ghost', 'cancel');
+    box.appendChild(card); scrollDown();
+  });
+}
+
 async function sendMessage(textOverride, opts = {}) {
   const text = (textOverride !== undefined ? textOverride : $('#input').value).trim();
   const isSummary = opts.summarize;
@@ -250,11 +267,15 @@ async function sendMessage(textOverride, opts = {}) {
   const welcome = box.querySelector('.welcome');
   if (welcome) welcome.remove();
 
-  // 기밀·비밀로 보이는 말이 있는데 등급이 낮으면 올릴지 물어본다(규칙 검사, 정확하지 않음 — 자동으로 낮추지는 않는다)
+  // 기밀·비밀로 보이는 말이 있는데 등급이 낮으면 보내기 전에 경고하고, 추천 등급을 고르면 그대로 진행한다(규칙 검사, 정확하지 않음)
+  let gradeAck = false;
   if (text) {
-    const sug = await api.grade.suspect(text);
-    if (sug && gradeRank(sug) > gradeRank(chatGrade)) {
-      if (confirm(`입력에 ${sug === 'S' ? '비밀(계정·키·개인정보)' : '기밀(계약·견적·거래처 등)'}로 보이는 내용이 있습니다.\n정보 등급을 ${sug}(${GRADE_TXT[sug]})로 올려서 보낼까요?\n\n[확인] 올려서 보냄 · [취소] 지금 등급 ${chatGrade} 그대로 보냄`)) setChatGrade(sug);
+    const d = await api.grade.suspect(text);
+    if (d && d.grade && gradeRank(d.grade) > gradeRank(chatGrade)) {
+      const ch = await askGrade(d, '입력한 내용');
+      if (ch === 'cancel') { $('#input').value = text; return; }
+      if (ch === 'raise') setChatGrade(d.grade);
+      gradeAck = true;
     }
   }
   if (mode === 'act' && !isSummary) {
@@ -270,8 +291,16 @@ async function sendMessage(textOverride, opts = {}) {
   wait.className = 'msg ai typing';
   box.appendChild(wait); scrollDown();
   $('#send').disabled = true;
-  const chatOpts = { includePage: $('#include-page').checked, mode: isSummary ? 'summarize' : 'chat', infoGrade: chatGrade };
+  const chatOpts = { includePage: $('#include-page').checked, mode: isSummary ? 'summarize' : 'chat', infoGrade: chatGrade, gradeAck };
   let res = await api.chat.send(text, chatOpts);
+  if (res.needGrade) {
+    // 보려는 페이지 내용 속에 기밀·비밀로 보이는 말이 있음 → 경고 후 선택
+    const ch = await askGrade(res, '현재 페이지 내용');
+    if (ch === 'cancel') { wait.remove(); $('#send').disabled = false; addErr('페이지에 기밀로 보이는 내용이 있어 보내지 않았습니다. 다시 보내려면 보내기를 눌러 주세요.'); return; }
+    if (ch === 'raise') setChatGrade(res.suggest);
+    chatOpts.infoGrade = chatGrade; chatOpts.gradeAck = true;
+    res = await api.chat.send(text, chatOpts);
+  }
   if (res.needConfirmLower) {
     // 등급을 낮추면 지금까지의 높은 등급 대화가 낮은 등급 서비스로 넘어갈 수 있다 → 확인 후 대화를 비우고 새로 시작
     if (confirm(`이 대화는 ${res.from}(${GRADE_TXT[res.from]}) 등급 내용을 다뤘습니다.\n${res.to}(${GRADE_TXT[res.to]})로 낮추면 이전 대화를 지우고 새 대화로 시작합니다.\n\n계속할까요?`)) {

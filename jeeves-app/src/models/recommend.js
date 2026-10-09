@@ -60,6 +60,24 @@ function suspectGrade(text) {
   if (SUSPECT_C.test(t)) return 'C';
   return null;
 }
+// 경고 창에 보여 줄 근거까지: { grade: 'C'|'S'|null, hits: [걸린 단어(최대 5개, 비밀값은 가림)] }
+function suspectDetail(text) {
+  const t = String(text || '');
+  const grade = suspectGrade(t);
+  const hits = [];
+  if (grade) {
+    for (const re of [SUSPECT_S, SUSPECT_C]) {
+      const g = new RegExp(re.source, 'gi');
+      let m;
+      while ((m = g.exec(t)) && hits.length < 5) {
+        const w = /^(sk-|\d{6})/.test(m[0]) ? '(키·번호 형태의 값)' : m[0];
+        if (!hits.includes(w)) hits.push(w);
+        if (m[0].length === 0) g.lastIndex++;
+      }
+    }
+  }
+  return { grade, hits };
+}
 const usable = (p, grade) => !!p && !p.disabled && !p.off && gradeOk(p, grade || 'P') && !!p.apiKey && p.apiKey !== 'ollama';
 
 // cfg: 설정 원본(키 포함). 반환: { provider, model, tier, grade, reason } 또는 null(추천 불가)
@@ -101,4 +119,4 @@ function recommendEngine(claudeFound) {
     : { type: 'api', reason: 'Claude Code가 설치돼 있지 않아 API 키 방식으로 동작함' };
 }
 
-module.exports = { CATALOG, NEED, GRADES, GRADE_INFO, gradeRank, effectiveMaxGrade, gradeOk, engineMaxGrade, engineGradeOk, suspectGrade, recommendFor, recommendAll, recommendEngine };
+module.exports = { CATALOG, NEED, GRADES, GRADE_INFO, gradeRank, effectiveMaxGrade, gradeOk, engineMaxGrade, engineGradeOk, suspectGrade, suspectDetail, recommendFor, recommendAll, recommendEngine };
