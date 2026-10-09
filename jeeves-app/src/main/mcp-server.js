@@ -130,11 +130,11 @@ class JeevesMcpServer {
       }));
     s.registerTool('browser_fast_steps', { description: '쉬운 클릭·스크롤을 빠른 판단기(Jev)가 연속으로 처리한다. 글 입력·판단이 필요해지면 멈추고 돌려준다. Jev 키가 없으면 쓸 수 없다.', inputSchema: { goal: z.string(), max_steps: z.number().int().min(1).max(10).optional() } },
       wrap('browser_fast_steps', async a => {
-        if (!this.d.router.available('decide')) return [{ type: 'text', text: '빠른 판단기(Jev)를 쓸 수 없습니다(설정에 TypeSafe 키 없음). 일반 도구로 진행하세요.' }];
+        if (!this.d.router.available('decide', this.d.getConfig().infoGrade)) return [{ type: 'text', text: '빠른 판단기(Jev)를 쓸 수 없습니다(설정에 TypeSafe 키 없음). 일반 도구로 진행하세요.' }];
         const tab = this.currentTab();
         const cfg = this.d.getConfig();
         const task = new AgentTask({ id: 'ext', goal: a.goal, driver: this.driverFor(tab), router: this.d.router, krwPerUsd: cfg.ui.krwPerUsd,
-          settings: { mode: 'hybrid', confirmMode: cfg.agent.confirmMode, jevConfidence: cfg.agent.jevConfidence } });
+          settings: { mode: 'hybrid', confirmMode: cfg.agent.confirmMode, jevConfidence: cfg.agent.jevConfidence, infoGrade: cfg.infoGrade } });
         task.on('event', ev => {
           if (ev.type === 'action') this.d.activity({ type: 'action', desc: ev.desc, ok: ev.ok, message: ev.message, who: 'jev' });
           if (ev.type === 'confirm') this.d.approve({ desc: ev.desc, why: ev.why }).then(r => task.respond(r));

@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { recommendAll, GRADES, effectiveMaxGrade } = require('../models/recommend');
+const ENGINE_GRADES = ['P', 'I', 'C'];   // 구독 엔진 허용 등급 후보(S는 항상 차단)
 
 // ── 기본값 ────────────────────────────────────────────────
 // providers: AI 회사(접속 창구). type 이 같으면 같은 통신 방식을 쓴다.
@@ -32,6 +33,9 @@ const DEFAULTS = {
     xai: { type: 'openai', label: 'xAI Grok', baseUrl: 'https://api.x.ai/v1', apiKey: '', tier: 'paid', maxGrade: 'P' },   // 학습 사용 여부 미확인 → 확인 전까지 공개(P)만
     // Zhipu GLM(Z.ai, 중국): 데이터 처리 정책 미확인 → 자동 추천에서는 제외하고 "직접" 선택으로만 쓴다
     zai: { type: 'openai', label: 'Zhipu GLM (Z.ai)', baseUrl: 'https://api.z.ai/api/paas/v4', apiKey: '', tier: 'paid', maxGrade: 'P' },
+    // Kimi(Moonshot)·DeepSeek(중국): 공개(P) 정보 전용, 추천 대상 아님(직접 선택만). 주소·모델명은 일반 지식 기준이라 연결 테스트로 확인 필요(공식 문서 미확인)
+    moonshot: { type: 'openai', label: 'Kimi (Moonshot AI)', baseUrl: 'https://api.moonshot.ai/v1', apiKey: '', tier: 'paid', maxGrade: 'P' },
+    deepseek: { type: 'openai', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', apiKey: '', tier: 'paid', maxGrade: 'P' },
     ollama: { type: 'openai', label: 'Ollama (내 PC 로컬 모델)', baseUrl: 'http://127.0.0.1:11434/v1', apiKey: 'ollama', tier: 'free' }
   },
   removedProviders: [],   // 사용자가 지운 기본 공급자 id (다시 살아나지 않게 기록)
@@ -46,10 +50,10 @@ const DEFAULTS = {
     budgetKrw: 500,            // 작업 1건 예산(원). 넘으면 계속할지 묻는다
     viewport: { width: 1440, height: 900 }
   },
-  infoGrade: 'P',   // 지금 다루는 정보의 기본 등급(P 공개/I 내부/C 기밀/S 비밀). P면 제한 없음(기존 동작)
+  infoGrade: 'I',   // 새 대화·작업의 시작 등급(P 공개/I 내부/C 기밀/S 비밀). 대화·작업마다 입력창 옆 선택칸으로 바꿀 수 있다
   ui: { homepage: 'https://www.google.com', krwPerUsd: 1400, layout: 'chat', previewWidth: 400, panelWidth: 420 }, // layout: 'chat' = 작업 화면 중심, 'web' = 웹 크게
   // 작업 엔진: 'api' = API 키(Claude·Jev 등, 사용량만큼 과금) / 'claude-code' = 내 PC 의 정품 Claude Code(내 구독)
-  engine: { type: 'api', claudePath: '', claudeModel: 'sonnet' },
+  engine: { type: 'api', claudePath: '', claudeModel: 'sonnet', maxGrade: 'I' },   // maxGrade: 구독 엔진이 받을 수 있는 최고 정보 등급(S는 항상 차단)
   // 외부 에이전트(Claude Code·Codex)가 Jeeves 브라우저를 쓰게 하는 창구 (내 PC 안에서만)
   mcp: { enabled: true, port: 47840, token: '' }
 };
@@ -83,6 +87,8 @@ class ConfigStore {
       if (keepProviders.typesafe) delete keepProviders.typesafe.disabled;
       raw = { version: DEFAULTS.version, providers: keepProviders, ui: raw.ui ? { homepage: raw.ui.homepage } : undefined };
     }
+    // 정보 등급 기본값을 P → I 로 올림(0.24): 예전에 저장된 기본값 P 는 한 번만 I 로 바꾼다(사용자가 이후 고른 값은 유지)
+    if (raw.infoGradeV !== 1) { if (raw.infoGrade === 'P') raw.infoGrade = 'I'; raw.infoGradeV = 1; this._dirty = true; }
     const merged = deepMerge(DEFAULTS, raw);
     // 사용자가 지운 기본 공급자는 기본값에서 되살아나지 않게 한다
     for (const id of merged.removedProviders || []) delete merged.providers[id];
@@ -155,6 +161,10 @@ class ConfigStore {
       }
     }
     if (patch.infoGrade !== undefined && !GRADES.includes(patch.infoGrade)) delete patch.infoGrade;
+    if (patch.engine) {
+      if (patch.engine.maxGrade !== undefined && !ENGINE_GRADES.includes(patch.engine.maxGrade)) delete patch.engine.maxGrade;
+    }
+    delete patch.infoGradeV;
     delete patch.removedProviders;   // 삭제 기록은 removeProvider() 로만 바꾼다
     this.data = deepMerge(this.data, patch);
     this.save();

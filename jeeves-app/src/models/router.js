@@ -34,8 +34,8 @@ class ModelRouter {
   }
 
   // 이 부문을 지금 쓸 수 있는지(키가 있는지) 미리 확인
-  available(role) {
-    try { this.resolve(role); return true; } catch (_) { return false; }
+  available(role, grade) {
+    try { this.resolve(role, grade); return true; } catch (_) { return false; }
   }
 
   record(role, model, usage, provider) {

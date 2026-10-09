@@ -189,6 +189,8 @@ code.copy { cursor: pointer; }
 .step.limit { color: var(--warn); font-weight: 600; }
 
 #composer-opts button { white-space: nowrap; }
+.grade-pick { display: inline-flex; align-items: center; gap: 2px; }
+.grade-pick.g-C select, .grade-pick.g-S select { border-color: #c0392b; color: #c0392b; font-weight: 600; }
 
 /* ── 0.3.1 배치: 작업 화면 중심(chat) / 웹 크게(web) ── */
 #body { position: relative; }

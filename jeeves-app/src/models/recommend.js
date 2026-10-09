@@ -41,6 +41,25 @@ function effectiveMaxGrade(p) {
   return p && p.tier === 'free' ? 'P' : 'I';
 }
 const gradeOk = (p, grade) => gradeRank(effectiveMaxGrade(p)) >= gradeRank(grade);
+
+// 작업 엔진(구독 Claude Code)이 다룰 수 있는 최고 등급. 기본 I(내부). S(비밀)는 설정과 무관하게 항상 막는다(로컬 전용).
+// 구독 엔진은 입력이 학습에 쓰이는지 사용자가 직접 확인해야 하므로, C(기밀)는 사용자가 명시적으로 올린 경우에만 허용한다.
+function engineMaxGrade(cfg) {
+  const g = cfg && cfg.engine && cfg.engine.maxGrade;
+  return g === 'P' || g === 'I' || g === 'C' ? g : 'I';
+}
+const engineGradeOk = (cfg, grade) => grade !== 'S' && gradeRank(engineMaxGrade(cfg)) >= gradeRank(grade);
+
+// 입력 글에 기밀·비밀로 볼 만한 말이 있는지 단순 규칙으로 살핀다(AI 아님, 정확하지 않음 — 실수 방지용 경고만).
+// 반환: 제안 등급('C' 또는 'S') 또는 null. 등급을 자동으로 바꾸지는 않는다.
+const SUSPECT_S = /(비밀번호|패스워드|password|api[\s_-]?key|시크릿|secret|토큰|token|주민(등록)?번호|계좌\s?번호|카드\s?번호|인증서|미공개\s?(기술|특허)|\b\d{6}-?[1-4]\d{6}\b|sk-[\w-]{20,})/i;
+const SUSPECT_C = /(대외비|기밀|confidential|계약서?|견적|단가|납품|거래처|고객(명|사)|급여|연봉|투자\s?(유치|계약)|NDA|비공개)/i;
+function suspectGrade(text) {
+  const t = String(text || '');
+  if (SUSPECT_S.test(t)) return 'S';
+  if (SUSPECT_C.test(t)) return 'C';
+  return null;
+}
 const usable = (p, grade) => !!p && !p.disabled && !p.off && gradeOk(p, grade || 'P') && !!p.apiKey && p.apiKey !== 'ollama';
 
 // cfg: 설정 원본(키 포함). 반환: { provider, model, tier, grade, reason } 또는 null(추천 불가)
@@ -82,4 +101,4 @@ function recommendEngine(claudeFound) {
     : { type: 'api', reason: 'Claude Code가 설치돼 있지 않아 API 키 방식으로 동작함' };
 }
 
-module.exports = { CATALOG, NEED, GRADES, GRADE_INFO, effectiveMaxGrade, gradeOk, recommendFor, recommendAll, recommendEngine };
+module.exports = { CATALOG, NEED, GRADES, GRADE_INFO, gradeRank, effectiveMaxGrade, gradeOk, engineMaxGrade, engineGradeOk, suspectGrade, recommendFor, recommendAll, recommendEngine };

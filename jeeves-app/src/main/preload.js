@@ -32,13 +32,14 @@ contextBridge.exposeInMainWorld('jeeves', {
     reset: () => ipcRenderer.invoke('chat:reset')
   },
   agent: {
-    start: (goal, where) => ipcRenderer.invoke('agent:start', { goal, where }),
+    start: (goal, where, infoGrade) => ipcRenderer.invoke('agent:start', { goal, where, infoGrade }),
     stop: id => ipcRenderer.invoke('agent:stop', id),
     respond: (id, payload) => ipcRenderer.invoke('agent:respond', { id, payload }),
     showTab: id => ipcRenderer.invoke('agent:show-tab', id),
     onEvent: fn => on('agent:event', fn)
   },
   usage: () => ipcRenderer.invoke('usage:get'),
+  grade: { suspect: text => ipcRenderer.invoke('grade:suspect', String(text || '')) },
   mcp: {
     status: () => ipcRenderer.invoke('mcp:status'),
     restart: regenerate => ipcRenderer.invoke('mcp:restart', { regenerate })

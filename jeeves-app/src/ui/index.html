@@ -71,6 +71,7 @@
             <label class="opt ask-only"><input type="checkbox" id="include-page" checked> 현재 페이지 내용 포함</label>
             <label class="opt act-only"><select id="where"><option value="background">새 백그라운드 탭에서</option><option value="current">지금 보는 탭에서</option></select></label>
             <span class="opt act-only engine-badge" id="engine-badge" title="설정 → 구독 연결에서 변경">API</span>
+            <label class="opt grade-pick" title="이 대화·작업에서 다루는 정보의 민감도. 올리는 것은 자유, 낮추면 이전 대화를 지우고 새로 시작합니다."><span>🔒</span><select id="chat-grade"><option value="P">P 공개</option><option value="I" selected>I 내부</option><option value="C">C 기밀</option><option value="S">S 비밀</option></select></label>
             <span class="spacer"></span>
             <button id="reset-chat" class="link" title="대화 기록 지우기">새 대화</button>
             <button id="send" class="primary">보내기</button>
@@ -111,14 +112,14 @@
         <section>
           <h3>2. 부문별 모델 배정</h3>
           <p class="muted"><b>추천</b>: 키가 있는 공급자 중 부문에 필요한 등급을 채우는 가장 싼 모델(무료 우선)을 자동으로 고릅니다. <b>직접</b>: 공급자와 모델을 직접 고릅니다. 부문마다 [추천|직접]으로 바꿀 수 있습니다. 생각 깊이(effort)는 낮을수록 빠르고 저렴합니다(Claude 5 계열만 적용).</p>
-          <div class="row"><span>🔒 지금 다루는 정보 등급<br><small class="muted" id="grade-desc"></small></span>
+          <div class="row"><span>🔒 새 대화·작업의 시작 등급<br><small class="muted" id="grade-desc"></small></span>
             <select id="info-grade"><option value="P">P 공개</option><option value="I">I 내부</option><option value="C">C 기밀(대외비)</option><option value="S">S 비밀</option></select></div>
           <div class="row"><span>모든 부문을 추천 배정으로<br><small class="muted">직접 고른 값은 지워지지 않고, 저장하면 추천이 적용됩니다.</small></span><button type="button" class="ghost" id="roles-all-auto">추천안으로 모두 맞추기</button></div>
           <div id="roles"></div>
           <datalist id="model-suggestions">
             <option value="claude-sonnet-5-5"><option value="claude-opus-5-5"><option value="claude-haiku-4-5-20251001"><option value="claude-fable-5-1">
             <option value="gemini-3.8-flash"><option value="gemini-3.5-flash-lite"><option value="gemini-3.1-pro-preview">
-            <option value="gpt-6-astra"><option value="gpt-6.1-sol"><option value="gpt-6-luna"><option value="grok-4.7"><option value="glm-5.3"><option value="glm-5.3-flash"><option value="jev-latest"><option value="llama3.1">
+            <option value="gpt-6-astra"><option value="gpt-6.1-sol"><option value="gpt-6-luna"><option value="grok-4.7"><option value="glm-5.3"><option value="glm-5.3-flash"><option value="kimi-k3"><option value="deepseek-v4.1-flash"><option value="jev-latest"><option value="llama3.1">
           </datalist>
         </section>
         <section>
@@ -147,6 +148,9 @@
           <p class="muted">내 구독(Claude Pro·Max, ChatGPT Plus·Pro)으로 쓰는 방법입니다. Jeeves은 로그인 정보를 전혀 다루지 않고, 정품 Claude Code·Codex가 내 로그인으로 Jeeves 브라우저 도구를 부릅니다. <b>개인 사용 전용</b>입니다.</p>
           <label class="row"><span>🤖 작업 엔진<br><small class="muted">구독: 내 PC의 정품 Claude Code 실행 (한도에 걸리면 풀릴 때 자동 재개)</small></span>
             <select id="engine-type"><option value="api">API 키 방식 (Sonnet + Jev, 사용량만큼 과금)</option><option value="claude-code">구독: Claude Code (Pro·Max)</option></select>
+          </label>
+          <label class="row"><span>🔒 구독 엔진이 받을 수 있는 최고 등급<br><small class="muted">기본 I(내부). C는 Claude Code 계정의 학습 사용 설정을 직접 확인한 뒤에만 올리세요. S(비밀)는 항상 막힙니다.</small></span>
+            <select id="engine-grade"><option value="P">P 공개까지</option><option value="I">I 내부까지 (기본)</option><option value="C">C 기밀까지</option></select>
           </label>
           <div class="row"><span>추천 엔진<br><small class="muted" id="engine-rec">Claude Code 설치 확인 후 표시됩니다.</small></span><button type="button" class="ghost hidden" id="engine-apply">추천대로 적용</button></div>
           <div class="row"><span>Claude Code 설치 확인<br><small class="muted" id="cc-status">확인 전</small></span><span><input id="cc-path" placeholder="자동으로 찾음 (직접 지정 시 claude.exe 경로)"> <button class="ghost" id="cc-check">확인</button></span></div>

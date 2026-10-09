@@ -4,7 +4,7 @@ const { ModelRouter } = require('../src/models/router');
 const { toOpenAIMessages } = require('../src/models/providers');
 const { DEFAULTS, ConfigStore, parseKeyFile } = require('../src/main/config');
 const { costUsd } = require('../src/models/pricing');
-const { recommendFor, recommendAll, recommendEngine, effectiveMaxGrade, gradeOk } = require('../src/models/recommend');
+const { recommendFor, recommendAll, recommendEngine, effectiveMaxGrade, gradeOk, engineGradeOk, engineMaxGrade, suspectGrade } = require('../src/models/recommend');
 const fs = require('fs'), os = require('os'), path = require('path');
 const { formatObservation, TOOLS } = require('../src/agent/agent');
 
@@ -262,7 +262,7 @@ function fakeFetch(handler) {
   });
 
   // ── 추천 배정 · 공급자 추가/삭제 · 유료/무료 ─────────────────
-  const withKeys = (keys, tiers = {}) => { const c = clone(DEFAULTS); for (const [id, k] of Object.entries(keys)) c.providers[id].apiKey = k; for (const [id, tr] of Object.entries(tiers)) c.providers[id].tier = tr; return c; };
+  const withKeys = (keys, tiers = {}) => { const c = clone(DEFAULTS); c.infoGrade = 'P'; /* 등급과 무관한 시험은 P(제한 없음)에서 시작 — 기본값은 I */ for (const [id, k] of Object.entries(keys)) c.providers[id].apiKey = k; for (const [id, tr] of Object.entries(tiers)) c.providers[id].tier = tr; return c; };
 
   await t('추천: 키가 없으면 추천 불가(null)', () => {
     const rec = recommendAll(withKeys({}));
@@ -338,7 +338,8 @@ function fakeFetch(handler) {
 
   await t('정보 등급: I 이상이면 무료 Gemini는 추천에서 빠지고 유료로 넘어감, S면 키 있는 외부 공급자 모두 제외', () => {
     const c = withKeys({ anthropic: 'k', gemini: 'k' });
-    assert.strictEqual(recommendFor(c, 'chat').provider, 'gemini');                 // 기본 P: 기존 동작
+    c.infoGrade = 'P';
+    assert.strictEqual(recommendFor(c, 'chat').provider, 'gemini');                 // P: 제한 없음(무료 우선)
     c.infoGrade = 'I';
     const r = recommendFor(c, 'chat');
     assert.strictEqual(r.provider, 'anthropic');
@@ -463,6 +464,67 @@ function fakeFetch(handler) {
     assert.strictEqual(c.roles.agent.mode, 'auto');
     assert.strictEqual(c.providers.anthropic.apiKey, 'sk-ant-keep');
     assert.strictEqual(c.providers.gemini.tier, 'free');
+  });
+
+  await t('정보 등급 0.24: 새 설정의 시작 등급은 I, 예전에 저장된 P 는 한 번만 I 로 올리고 이후 사용자가 고른 값은 유지', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-'));
+    assert.strictEqual(new ConfigStore(dir, null).get().infoGrade, 'I');
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-'));
+    fs.writeFileSync(path.join(dir2, 'jeeves-config.json'), JSON.stringify({ version: 3, infoGrade: 'P' }));
+    const cs = new ConfigStore(dir2, null);
+    assert.strictEqual(cs.get().infoGrade, 'I');
+    cs.update({ infoGrade: 'P' });                                   // 사용자가 직접 P 를 고름
+    assert.strictEqual(new ConfigStore(dir2, null).get().infoGrade, 'P');
+  });
+
+  await t('구독 엔진 검문소: 기본 I 까지 허용, C 는 허용 등급을 올린 때만, S 는 항상 차단', () => {
+    const cfg = clone(DEFAULTS);
+    assert.strictEqual(engineMaxGrade(cfg), 'I');
+    assert.ok(engineGradeOk(cfg, 'P') && engineGradeOk(cfg, 'I'));
+    assert.ok(!engineGradeOk(cfg, 'C') && !engineGradeOk(cfg, 'S'));
+    cfg.engine.maxGrade = 'C';
+    assert.ok(engineGradeOk(cfg, 'C') && !engineGradeOk(cfg, 'S'));
+    cfg.engine.maxGrade = 'S';                                      // 잘못된 값은 기본 I 로 취급
+    assert.strictEqual(engineMaxGrade(cfg), 'I');
+    const cs = new ConfigStore(fs.mkdtempSync(path.join(os.tmpdir(), 'cfg-')), null);
+    cs.update({ engine: { maxGrade: 'S' } });
+    assert.strictEqual(cs.data.engine.maxGrade, 'I');               // 저장 단계에서 S 는 거부
+    cs.update({ engine: { maxGrade: 'C' } });
+    assert.strictEqual(cs.data.engine.maxGrade, 'C');
+  });
+
+  await t('민감어 경고: 비밀·기밀로 보이는 글은 상위 등급을 제안만 함(자동 변경 없음)', () => {
+    assert.strictEqual(suspectGrade('로그인 비밀번호 알려줘'), 'S');
+    assert.strictEqual(suspectGrade('주민번호 900101-1234567'), 'S');
+    assert.strictEqual(suspectGrade('이 계약서 단가 검토해 줘'), 'C');
+    assert.strictEqual(suspectGrade('대외비 자료 요약'), 'C');
+    assert.strictEqual(suspectGrade('오늘 날씨 알려줘'), null);
+  });
+
+  await t('Kimi·DeepSeek: 기본 공급자로 존재, P 전용, 추천 대상 아님(직접 선택만)', () => {
+    const c = withKeys({ moonshot: 'k', deepseek: 'k', anthropic: 'k' });
+    assert.strictEqual(effectiveMaxGrade(c.providers.moonshot), 'P');
+    assert.strictEqual(effectiveMaxGrade(c.providers.deepseek), 'P');
+    c.infoGrade = 'P';
+    for (const role of Object.keys(c.roles)) {
+      const r = recommendFor(c, role);
+      assert.ok(!r || (r.provider !== 'moonshot' && r.provider !== 'deepseek'));
+    }
+    const router = new ModelRouter(() => c, async () => { throw new Error('호출되면 안 됨'); });
+    c.roles.chat.mode = 'manual'; c.roles.chat.provider = 'deepseek'; c.roles.chat.model = 'deepseek-v4.1-flash';
+    assert.doesNotThrow(() => router.resolve('chat', 'P'));
+    assert.throws(() => router.resolve('chat', 'I'), /정보 등급 I.*쓸 수 없습니다/);
+  });
+
+  await t('호출별 등급: 라우터 call 이 req.infoGrade 로 관문을 적용(작업·대화 단위)', async () => {
+    const c = withKeys({ gemini: 'k' });
+    c.infoGrade = 'P';
+    c.roles.chat.mode = 'manual'; c.roles.chat.provider = 'gemini'; c.roles.chat.model = 'gemini-3.8-flash';
+    const f = fakeFetch(() => ({ status: 200, body: { choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } } }));
+    const router = new ModelRouter(() => c, f);
+    await router.call('chat', { system: 's', messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], maxTokens: 10, infoGrade: 'P' });
+    await assert.rejects(() => router.call('chat', { system: 's', messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], maxTokens: 10, infoGrade: 'C' }), /정보 등급 C/);
+    assert.strictEqual(f.calls.length, 1);                          // 막힌 호출은 외부로 나가지 않음
   });
 
   let fail = 0;

@@ -122,7 +122,7 @@ class AgentTask extends EventEmitter {
     this.router = router;
     this.settings = {
       maxSteps: 30, confirmMode: 'risky', screenshotMode: 'auto', mode: 'llm', escalate: true,
-      budgetUsd: null, jevConfidence: 0.7, ...settings
+      budgetUsd: null, jevConfidence: 0.7, infoGrade: undefined, ...settings
     };
     this.history = history || [];
     this.krwPerUsd = krwPerUsd || 1400;
@@ -168,7 +168,7 @@ class AgentTask extends EventEmitter {
   hybridOn() {
     const m = this.settings.mode;
     if (this.jevOff || m === 'llm') return false;
-    return this.router.available('decide');
+    return this.router.available('decide', this.settings.infoGrade);
   }
 
   // ── 비용 ──
@@ -318,7 +318,7 @@ class AgentTask extends EventEmitter {
     };
     let res;
     try {
-      res = await this.router.call('decide', { state, questions, signal: this.abort.signal });
+      res = await this.router.call('decide', { state, questions, signal: this.abort.signal, infoGrade: this.settings.infoGrade });
     } catch (e) {
       if (e.name === 'AbortError') throw e;
       this.jevOff = true;
@@ -420,7 +420,7 @@ class AgentTask extends EventEmitter {
         // 3) Claude 판단
         this.trimContext();
         this.log('thinking', { step: this.actions + 1, role: this.role });
-        const res = await this.router.call(this.role, { system: systemPrompt(now), messages: this.messages, tools: TOOLS, maxTokens: 8192, signal: this.abort.signal });
+        const res = await this.router.call(this.role, { system: systemPrompt(now), messages: this.messages, tools: TOOLS, maxTokens: 8192, signal: this.abort.signal, infoGrade: this.settings.infoGrade });
         this.llmCalls++;
         this.addCost(res, this.role);
         this.messages.push({ role: 'assistant', content: res.content });
@@ -466,7 +466,7 @@ class AgentTask extends EventEmitter {
         if (finished) return this.finish(finished.success, finished.summary);
 
         // 4) 연속 실패하면 상위 모델로 승격 (한 번만)
-        if (this.settings.escalate && !this.escalated && this.failStreak >= 2 && this.router.available('agentStrong')) {
+        if (this.settings.escalate && !this.escalated && this.failStreak >= 2 && this.router.available('agentStrong', this.settings.infoGrade)) {
           await this.escalateNow(`${this.failStreak}번 연속 실패`);
         }
       }

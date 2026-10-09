@@ -5,6 +5,17 @@ const api = window.jeeves;
 
 let tabList = [];
 let cfg = null;
+// 대화·작업별 정보 등급 (P 공개 < I 내부 < C 기밀 < S 비밀). 시작값은 설정의 기본 등급.
+const GRADE_ORDER = ['P', 'I', 'C', 'S'];
+const gradeRank = g => Math.max(0, GRADE_ORDER.indexOf(g));
+let chatGrade = 'I';
+function setChatGrade(g) {
+  if (!GRADE_ORDER.includes(g)) return;
+  chatGrade = g;
+  const sel = $('#chat-grade'); if (!sel) return;
+  sel.value = g;
+  const lab = sel.closest('.grade-pick'); if (lab) { lab.classList.remove('g-C', 'g-S'); if (g === 'C' || g === 'S') lab.classList.add('g-' + g); }
+}
 let mode = 'ask';
 const cards = new Map(); // taskId → 작업 카드 상태
 
@@ -239,29 +250,45 @@ async function sendMessage(textOverride, opts = {}) {
   const welcome = box.querySelector('.welcome');
   if (welcome) welcome.remove();
 
+  // 기밀·비밀로 보이는 말이 있는데 등급이 낮으면 올릴지 물어본다(규칙 검사, 정확하지 않음 — 자동으로 낮추지는 않는다)
+  if (text) {
+    const sug = await api.grade.suspect(text);
+    if (sug && gradeRank(sug) > gradeRank(chatGrade)) {
+      if (confirm(`입력에 ${sug === 'S' ? '비밀(계정·키·개인정보)' : '기밀(계약·견적·거래처 등)'}로 보이는 내용이 있습니다.\n정보 등급을 ${sug}(${GRADE_TXT[sug]})로 올려서 보낼까요?\n\n[확인] 올려서 보냄 · [취소] 지금 등급 ${chatGrade} 그대로 보냄`)) setChatGrade(sug);
+    }
+  }
   if (mode === 'act' && !isSummary) {
     const where = $('#where').value;
-    addUser(text, where === 'current' ? '🤖 작업 · 지금 탭' : '🤖 작업 · 백그라운드 탭');
-    const r = await api.agent.start(text, where);
+    addUser(text, (where === 'current' ? '🤖 작업 · 지금 탭' : '🤖 작업 · 백그라운드 탭') + ` · 🔒${chatGrade}`);
+    const r = await api.agent.start(text, where, chatGrade);
     if (r.error) { addErr(r.error); return; }
     ensureCard(r.id, { goal: text });
     return;
   }
-  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, isSummary ? '📄 요약' : ($('#include-page').checked ? '💬 질문 · 페이지 포함' : '💬 질문'));
+  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : ($('#include-page').checked ? '💬 질문 · 페이지 포함' : '💬 질문')) + ` · 🔒${chatGrade}`);
   const wait = document.createElement('div');
   wait.className = 'msg ai typing';
   box.appendChild(wait); scrollDown();
   $('#send').disabled = true;
-  const res = await api.chat.send(text, { includePage: $('#include-page').checked, mode: isSummary ? 'summarize' : 'chat' });
+  const chatOpts = { includePage: $('#include-page').checked, mode: isSummary ? 'summarize' : 'chat', infoGrade: chatGrade };
+  let res = await api.chat.send(text, chatOpts);
+  if (res.needConfirmLower) {
+    // 등급을 낮추면 지금까지의 높은 등급 대화가 낮은 등급 서비스로 넘어갈 수 있다 → 확인 후 대화를 비우고 새로 시작
+    if (confirm(`이 대화는 ${res.from}(${GRADE_TXT[res.from]}) 등급 내용을 다뤘습니다.\n${res.to}(${GRADE_TXT[res.to]})로 낮추면 이전 대화를 지우고 새 대화로 시작합니다.\n\n계속할까요?`)) {
+      res = await api.chat.send(text, { ...chatOpts, lowerOk: true });
+      if (res.ok) addAI(`(정보 등급을 ${chatOpts.infoGrade}로 낮춰 이전 대화는 지우고 새 대화로 시작했습니다. 위쪽 메시지는 AI가 더 이상 참고하지 않습니다.)`);
+    } else { setChatGrade(res.from); res = { ok: false, error: `등급을 ${res.from}(${GRADE_TXT[res.from]}) 그대로 두어 보내지 않았습니다. 다시 보내려면 보내기를 눌러 주세요.` }; }
+  }
   wait.remove();
   $('#send').disabled = false;
   if (res.ok) addAI(res.text, res.model + (res.costKrw != null ? ` · 약 ${res.costKrw}원` : '')); else addErr(res.error);
 }
 $('#send').onclick = () => sendMessage();
+$('#chat-grade').onchange = () => setChatGrade($('#chat-grade').value);
 $('#input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); }
 });
-$('#reset-chat').onclick = async () => { await api.chat.reset(); box.innerHTML = ''; addAI('새 대화를 시작합니다. 이전 대화 내용은 AI가 더 이상 참고하지 않습니다.'); };
+$('#reset-chat').onclick = async () => { await api.chat.reset(); setChatGrade((cfg && cfg.infoGrade) || 'I'); box.innerHTML = ''; addAI('새 대화를 시작합니다. 이전 대화 내용은 AI가 더 이상 참고하지 않습니다.'); };
 box.addEventListener('click', e => {
   const q = e.target.closest('[data-quick]');
   if (!q) return;
@@ -490,8 +517,8 @@ async function openSettings(msg) {
   settingsOpen = true;
   api.layout.hideWeb(true);
   $('#settings').classList.remove('hidden');
-  $('#info-grade').value = cfg.infoGrade || 'P';
-  $('#grade-desc').textContent = GRADE_DESC[cfg.infoGrade || 'P'];
+  $('#info-grade').value = cfg.infoGrade || 'I';
+  $('#grade-desc').textContent = GRADE_DESC[cfg.infoGrade || 'I'];
   renderProviders();
   renderRoles();
   const a = cfg.agent;
@@ -500,6 +527,7 @@ async function openSettings(msg) {
   $('#confirm-mode').value = a.confirmMode;
   $('#max-steps').value = a.maxSteps;
   $('#homepage').value = cfg.ui.homepage;
+  $('#engine-grade').value = cfg.engine.maxGrade || 'I';
   $('#engine-type').value = cfg.engine.type; $('#cc-path').value = cfg.engine.claudePath || ''; $('#cc-model').value = cfg.engine.claudeModel || '';
   refreshMcp(); checkClaude(false);
   const u = await api.usage();
@@ -536,7 +564,7 @@ async function saveSettings(quiet) {
     escalate: $('#escalate').checked, budgetKrw: num($('#budget').value, 0, 1e7, 500),
     confirmMode: $('#confirm-mode').value, maxSteps: num($('#max-steps').value, 5, 100, 30)
   };
-  patch.engine = { type: $('#engine-type').value, claudePath: $('#cc-path').value.trim(), claudeModel: $('#cc-model').value };
+  patch.engine = { type: $('#engine-type').value, claudePath: $('#cc-path').value.trim(), claudeModel: $('#cc-model').value, maxGrade: $('#engine-grade').value };
   patch.infoGrade = $('#info-grade').value;
   patch.ui = { homepage: $('#homepage').value.trim() || 'https://www.google.com', krwPerUsd: num($('#krw-rate').value, 500, 5000, 1400) };
   cfg = await api.config.update(patch);
@@ -602,4 +630,4 @@ $('#settings').addEventListener('click', e => { if (e.target.id === 'settings') 
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#settings').classList.contains('hidden')) closeSettings(); });
 
 // 첫 실행: Anthropic 키가 없으면 설정을 연다
-api.config.get().then(c => { cfg = c; sizes.preview = c.ui.previewWidth || 400; sizes.panel = c.ui.panelWidth || 420; applySizes(); setLayout(c.ui.layout || 'chat', { save: false }); syncEngineBadge(); if (c.engine.type !== 'claude-code' && !Object.values(c.providers).some(p => p.hasKey && !/127\.0\.0\.1|localhost/.test(p.baseUrl || ''))) setTimeout(() => openSettings('먼저 사용할 AI 공급자의 API 키를 입력하고 저장해 주세요.'), 600); });
+api.config.get().then(c => { cfg = c; setChatGrade(c.infoGrade || 'I'); sizes.preview = c.ui.previewWidth || 400; sizes.panel = c.ui.panelWidth || 420; applySizes(); setLayout(c.ui.layout || 'chat', { save: false }); syncEngineBadge(); if (c.engine.type !== 'claude-code' && !Object.values(c.providers).some(p => p.hasKey && !/127\.0\.0\.1|localhost/.test(p.baseUrl || ''))) setTimeout(() => openSettings('먼저 사용할 AI 공급자의 API 키를 입력하고 저장해 주세요.'), 600); });
