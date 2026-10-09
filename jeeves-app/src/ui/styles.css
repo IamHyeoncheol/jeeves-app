@@ -247,3 +247,16 @@ body.resizing #web-area::after { content: '크기 조절 중…'; position: abso
 .msg-actions button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .msg.user .msg-actions button { background: transparent; color: var(--accent-ink); border-color: rgba(255,255,255,.5); }
 .msg-toast { margin-top: 4px; }
+
+/* 첨부(파일·사진) */
+#attach-tray { display: flex; gap: 6px; flex-wrap: wrap; }
+.att { position: relative; display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 4px 8px; font-size: 12px; max-width: 220px; }
+.att img { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; }
+.att .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att .sub { color: var(--muted); font-size: 11px; }
+.att .x { border: 0; background: transparent; cursor: pointer; color: var(--muted); font-size: 14px; padding: 0 2px; }
+.att .x:hover { color: var(--warn); }
+.msg.user .atts { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.msg.user .att { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.4); color: var(--accent-ink); }
+.msg.user .att .sub { color: inherit; opacity: .8; }
+#composer.dragover { outline: 2px dashed var(--accent); outline-offset: -4px; background: var(--accent-soft); }

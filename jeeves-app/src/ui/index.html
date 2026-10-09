@@ -66,8 +66,11 @@
             <button data-mode="ask" class="on">💬 대화 (Chat)</button>
             <button data-mode="act">🤖 작업 (Work)</button>
           </div>
-          <textarea id="input" rows="3" placeholder="무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)"></textarea>
+          <div id="attach-tray" class="hidden"></div>
+          <textarea id="input" rows="3" placeholder="무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈 · 파일·이미지는 끌어다 놓거나 붙여넣기)"></textarea>
           <div id="composer-opts">
+            <button id="attach-btn" class="ghost ask-only" type="button" title="파일 또는 사진 추가 (Ctrl+U)">＋ 파일·사진</button>
+            <input type="file" id="file-input" multiple class="hidden" accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.csv,.tsv,.json,.xml,.html,.htm,.css,.js,.ts,.py,.java,.c,.cpp,.cs,.go,.rs,.sql,.log,.yml,.yaml,.ini,.toml,.bat,.ps1,.sh,.rtf">
             <label class="opt ask-only"><input type="checkbox" id="include-page"> 현재 페이지 내용 포함</label>
             <label class="opt act-only"><select id="where"><option value="background">새 백그라운드 탭에서</option><option value="current">지금 보는 탭에서</option></select></label>
             <span class="opt act-only engine-badge" id="engine-badge" title="설정 → 구독 연결에서 변경">API</span>

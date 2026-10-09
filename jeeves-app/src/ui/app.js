@@ -231,6 +231,7 @@ function addUser(text, tag, info) {
   d.className = 'msg user';
   d.innerHTML = (tag ? `<span class="tag">${esc(tag)}</span>` : '') + `<span class="body">${esc(text)}</span>`;
   d._raw = text; d._info = info || { kind: 'chat' };
+  if (d._info.attachments && d._info.attachments.length) { const w = document.createElement('div'); w.className = 'atts'; d._info.attachments.forEach(a => w.appendChild(attChip(a, false))); d.insertBefore(w, d.querySelector('.body')); }
   const k = d._info.kind;
   d.appendChild(actBar(k === 'chat' ? [['copy', '복사', '복사'], ['edit', '수정', '고쳐서 다시 보내기'], ['retry', '재시도', '같은 질문 다시 보내기']] : k === 'sum' ? [['copy', '복사', '복사'], ['retry', '재시도', '다시 요약']] : [['copy', '복사', '복사']]));
   box.appendChild(d); scrollDown();
@@ -265,12 +266,12 @@ box.addEventListener('click', async e => {
   const msg = btn.closest('.msg'); const act = btn.dataset.act; const raw = msg._raw || '';
   if (act === 'copy') { try { await api.copy(raw); toastIn(msg, '복사했습니다'); } catch (_) {} return; }
   if (msg.classList.contains('user')) {
-    if (act === 'edit') { await cutFrom(msg); $('#input').value = raw; setMode('ask'); $('#input').focus(); return; }
-    if (act === 'retry') { const info = msg._info; await cutFrom(msg); sendMessage(info.kind === 'sum' ? '' : raw, info.kind === 'sum' ? { summarize: true } : { includePage: info.page }); return; }
+    if (act === 'edit') { const at = (msg._info.attachments || []).slice(); await cutFrom(msg); $('#input').value = raw; attachments = at; renderTray(); setMode('ask'); $('#input').focus(); return; }
+    if (act === 'retry') { const info = msg._info; await cutFrom(msg); sendMessage(info.kind === 'sum' ? '' : raw, info.kind === 'sum' ? { summarize: true } : { includePage: info.page, attachments: info.attachments || [] }); return; }
     return;
   }
   const u = userBefore(msg);
-  if (act === 'retry') { if (!u) return; const info = u._info, rawQ = u._raw; await cutFrom(u); sendMessage(info.kind === 'sum' ? '' : rawQ, info.kind === 'sum' ? { summarize: true } : { includePage: info.page }); return; }
+  if (act === 'retry') { if (!u) return; const info = u._info, rawQ = u._raw; await cutFrom(u); sendMessage(info.kind === 'sum' ? '' : rawQ, info.kind === 'sum' ? { summarize: true } : { includePage: info.page, attachments: info.attachments || [] }); return; }
   if (act === 'export') {
     const q = u ? u._raw : '';
     const r = await api.chat.exportText(`Jeeves_답변_${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}.md`, `# 질문\n\n${q}\n\n# 답변\n\n${raw}\n\n---\n${msg._meta || ''}\n`);
@@ -338,26 +339,105 @@ function askGrade(d, where) {
   });
 }
 
+// ── 첨부(파일·사진): 끌어다 놓기·붙여넣기·＋ 단추 ──────────────────────
+// 사진은 크기를 줄여 넣고(긴 변 1600px), 글 파일은 내용을 그대로 읽어 질문과 함께 보냅니다. 긴 글을 붙여넣으면 첨부 칩으로 바뀝니다(Claude 앱과 같은 방식).
+const ATT_MAX = 5, TEXT_EXT = /\.(txt|md|csv|tsv|json|xml|html?|css|js|ts|py|java|c|cpp|cs|go|rs|sql|log|ya?ml|ini|toml|bat|ps1|sh|rtf)$/i, LONG_PASTE = 2000;
+let attachments = [];
+function fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB'; }
+function attChip(a, removable) {
+  const el = document.createElement('div');
+  el.className = 'att';
+  const sub = a.kind === 'image' ? '사진' : `글 ${a.text.length.toLocaleString()}자`;
+  el.innerHTML = (a.kind === 'image' ? `<img alt="" src="data:${a.mediaType};base64,${a.data}">` : '📄') + `<span><div class="nm">${esc(a.name)}</div><div class="sub">${sub}</div></span>` + (removable ? '<button class="x" title="빼기">✕</button>' : '');
+  if (removable) el.querySelector('.x').onclick = () => { attachments = attachments.filter(x => x !== a); renderTray(); };
+  return el;
+}
+function renderTray() {
+  const tray = $('#attach-tray');
+  tray.innerHTML = '';
+  attachments.forEach(a => tray.appendChild(attChip(a, true)));
+  tray.classList.toggle('hidden', !attachments.length);
+}
+function readAsDataURL(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); r.readAsDataURL(file); }); }
+function readAsText(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsText(file, 'utf-8'); }); }
+async function shrinkImage(file) {
+  const url = await readAsDataURL(file);
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('사진을 열 수 없습니다')); i.src = url; });
+  const big = Math.max(img.naturalWidth, img.naturalHeight);
+  if (file.size <= 1.5 * 1048576 && big <= 1600) return { mediaType: file.type, data: url.split(',')[1] };   // 이미 작으면 원본 그대로
+  const k = Math.min(1, 1600 / big);
+  const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const png = file.type === 'image/png' && c.width * c.height < 1200 * 1200;
+  const out = c.toDataURL(png ? 'image/png' : 'image/jpeg', 0.88);
+  return { mediaType: png ? 'image/png' : 'image/jpeg', data: out.split(',')[1] };
+}
+async function addFiles(files) {
+  if (mode === 'act') { addErr('작업(Work) 모드에서는 파일·사진을 첨부할 수 없습니다. 대화(Chat) 모드에서 첨부해 주세요.'); return; }
+  const problems = [];
+  for (const f of files) {
+    if (attachments.length >= ATT_MAX) { problems.push(`한 번에 ${ATT_MAX}개까지 첨부할 수 있습니다`); break; }
+    try {
+      if (/^image\/(png|jpe?g|gif|webp)$/.test(f.type)) {
+        const im = await shrinkImage(f);
+        if (im.data.length > 7 * 1048576) { problems.push(`${f.name}: 사진이 너무 큽니다`); continue; }
+        attachments.push({ kind: 'image', name: f.name || '붙여넣은 사진', ...im });
+      } else if (f.type.startsWith('text/') || TEXT_EXT.test(f.name || '')) {
+        if (f.size > 300 * 1024) { problems.push(`${f.name}: 글 파일은 300KB까지입니다(크면 필요한 부분만 잘라서 붙여넣어 주세요)`); continue; }
+        attachments.push({ kind: 'text', name: f.name || '붙여넣은 글', text: await readAsText(f) });
+      } else problems.push(`${f.name || '파일'}: 아직 지원하지 않는 형식입니다(사진·글 파일만 가능. PDF·Word·Excel은 내용을 복사해 붙여넣어 주세요)`);
+    } catch (e) { problems.push(`${f.name}: ${e.message}`); }
+  }
+  renderTray();
+  if (problems.length) addErr(problems.join('\n'));
+}
+$('#attach-btn').onclick = () => $('#file-input').click();
+$('#file-input').onchange = async e => { await addFiles([...e.target.files]); e.target.value = ''; };
+document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'u' && !settingsOpen) { e.preventDefault(); $('#file-input').click(); } });
+// 붙여넣기: 사진·파일은 첨부로, 아주 긴 글은 첨부 칩으로, 보통 글은 그대로 입력칸에
+$('#input').addEventListener('paste', async e => {
+  const cd = e.clipboardData; if (!cd) return;
+  const files = [...(cd.files || [])];
+  if (files.length) { e.preventDefault(); await addFiles(files); return; }
+  const t = cd.getData('text/plain');
+  if (t && t.length > LONG_PASTE && mode !== 'act') {
+    e.preventDefault();
+    if (attachments.length >= ATT_MAX) { addErr(`한 번에 ${ATT_MAX}개까지 첨부할 수 있습니다`); return; }
+    attachments.push({ kind: 'text', name: `붙여넣은 글 ${attachments.filter(a => a.kind === 'text').length + 1}`, text: t, pasted: true });
+    renderTray();
+  }
+});
+// 끌어다 놓기
+const comp = $('#composer');
+['dragenter', 'dragover'].forEach(ev => comp.addEventListener(ev, e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); comp.classList.add('dragover'); } }));
+['dragleave', 'drop'].forEach(ev => comp.addEventListener(ev, e => { if (ev === 'dragleave' && comp.contains(e.relatedTarget)) return; comp.classList.remove('dragover'); }));
+comp.addEventListener('drop', async e => { if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); await addFiles([...e.dataTransfer.files]); } });
+window.addEventListener('dragover', e => e.preventDefault());   // 창 아무 데나 놓아도 파일이 새 창으로 열리지 않게
+window.addEventListener('drop', e => e.preventDefault());
+
 async function sendMessage(textOverride, opts = {}) {
   const text = (textOverride !== undefined ? textOverride : $('#input').value).trim();
   const isSummary = opts.summarize;
-  if (!text && !isSummary) return;
+  const atts = isSummary ? [] : (opts.attachments !== undefined ? opts.attachments : attachments);   // 다시 보내기는 그때 첨부 그대로
+  if (!text && !isSummary && !atts.length) return;
   $('#input').value = '';
   const welcome = box.querySelector('.welcome');
   if (welcome) welcome.remove();
 
   // 기밀·비밀로 보이는 말이 있는데 등급이 낮으면 보내기 전에 경고하고, 추천 등급을 고르면 그대로 진행한다(규칙 검사, 정확하지 않음)
   let gradeAck = false;
-  if (text) {
-    const d = await api.grade.suspect(text);
+  const attText = atts.filter(a => a.kind === 'text').map(a => a.text).join('\n');
+  if (text || attText) {
+    const d = await api.grade.suspect(text + '\n' + attText);
     if (d && d.grade && gradeRank(d.grade) > gradeRank(chatGrade)) {
-      const ch = await askGrade(d, '입력한 내용');
+      const ch = await askGrade(d, attText ? '입력한 내용·첨부한 글' : '입력한 내용');
       if (ch === 'cancel') { $('#input').value = text; return; }
       if (ch === 'raise') setChatGrade(d.grade);
       gradeAck = true;
     }
   }
   if (mode === 'act' && !isSummary) {
+    if (atts.length) { $('#input').value = text; addErr('작업(Work) 모드에서는 파일·사진을 첨부할 수 없습니다. 첨부를 빼거나 대화(Chat) 모드로 바꿔 주세요.'); return; }
     const where = $('#where').value;
     addUser(text, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act' });
     const r = await api.agent.start(text, where, chatGrade);
@@ -366,12 +446,13 @@ async function sendMessage(textOverride, opts = {}) {
     return;
   }
   const usePage = opts.includePage !== undefined ? !!opts.includePage : $('#include-page').checked;
-  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : (usePage ? '💬 대화 · 페이지 포함' : '💬 대화')) + ` · 🔒${chatGrade}`, { kind: isSummary ? 'sum' : 'chat', page: usePage });
+  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : (usePage ? '💬 대화 · 페이지 포함' : '💬 대화')) + ` · 🔒${chatGrade}`, { kind: isSummary ? 'sum' : 'chat', page: usePage, attachments: atts });
+  if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
   const wait = document.createElement('div');
   wait.className = 'msg ai typing';
   box.appendChild(wait); scrollDown();
   $('#send').disabled = true;
-  const chatOpts = { includePage: usePage, mode: isSummary ? 'summarize' : 'chat', infoGrade: chatGrade, gradeAck };
+  const chatOpts = { includePage: usePage, mode: isSummary ? 'summarize' : 'chat', infoGrade: chatGrade, gradeAck, attachments: atts };
   let res = await api.chat.send(text, chatOpts);
   if (res.needLive) {
     // 실시간 정보 질문: 질문 모드는 인터넷을 못 보므로 작업 모드(검색 가능)로 보낼지 묻는다
@@ -387,7 +468,7 @@ async function sendMessage(textOverride, opts = {}) {
     }
     if (ch === 'cancel') { $('#input').value = text; return; }
     // 'ask': 그래도 질문 모드로 → 아는 범위에서만 답함
-    addUser(text, '💬 대화 · 🔒' + chatGrade, { kind: 'chat', page: false });
+    addUser(text, '💬 대화 · 🔒' + chatGrade, { kind: 'chat', page: false, attachments: atts });
     const w2 = document.createElement('div'); w2.className = 'msg ai typing'; box.appendChild(w2); scrollDown();
     $('#send').disabled = true;
     const r2 = await api.chat.send(text, { ...chatOpts, liveAck: true });
@@ -397,8 +478,8 @@ async function sendMessage(textOverride, opts = {}) {
   }
   if (res.needGrade) {
     // 보려는 페이지 내용 속에 기밀·비밀로 보이는 말이 있음 → 경고 후 선택
-    const ch = await askGrade(res, '현재 페이지 내용');
-    if (ch === 'cancel') { wait.remove(); $('#send').disabled = false; addErr('페이지에 기밀로 보이는 내용이 있어 보내지 않았습니다. 다시 보내려면 보내기를 눌러 주세요.'); return; }
+    const ch = await askGrade(res, res.source === 'attachment' ? '첨부한 글' : '현재 페이지 내용');
+    if (ch === 'cancel') { wait.remove(); $('#send').disabled = false; addErr((res.source === 'attachment' ? '첨부한 글' : '페이지') + '에 기밀로 보이는 내용이 있어 보내지 않았습니다. 다시 보내려면 보내기를 눌러 주세요.'); return; }
     if (ch === 'raise') setChatGrade(res.suggest);
     chatOpts.infoGrade = chatGrade; chatOpts.gradeAck = true;
     res = await api.chat.send(text, chatOpts);

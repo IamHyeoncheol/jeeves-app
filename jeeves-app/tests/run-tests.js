@@ -671,6 +671,9 @@ function fakeFetch(handler) {
     const call2 = JSON.parse(fs.readFileSync(process.env.FAKE_LOG, 'utf8').trim().split('\n').pop());
     assert.strictEqual(call2.args[call2.args.indexOf('--allowedTools') + 1], 'ToolSearch,WebSearch,WebFetch');   // 대화 모드: 읽기 전용 웹 검색·읽기만 추가
     assert.ok(!/Bash|Edit|Write|mcp__/.test(call2.args[call2.args.indexOf('--allowedTools') + 1]));
+    await runClaudeChat({ bin, system: '규칙', prompt: '사진', workDir: dir, web: true, readScope: 'jeeves-attach' });
+    const call3 = JSON.parse(fs.readFileSync(process.env.FAKE_LOG, 'utf8').trim().split('\n').pop());
+    assert.strictEqual(call3.args[call3.args.indexOf('--allowedTools') + 1], 'ToolSearch,WebSearch,WebFetch,Read(./jeeves-attach/**)');   // 사진 첨부: 첨부 폴더만 읽기 허용
     process.env.FAKE_MODE = 'limit';
     await assert.rejects(() => runClaudeChat({ bin, system: '', prompt: 'x', workDir: dir }), e => e.kind === 'limit' && /한도/.test(e.message));
     process.env.FAKE_MODE = 'login';
