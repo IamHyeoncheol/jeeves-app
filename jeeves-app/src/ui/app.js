@@ -1104,6 +1104,37 @@ const SB_ICO = { proj: '<svg class="ico" viewBox="0 0 24 24"><path d="M3 7a2 2 0
 const sbSave = () => { try { localStorage.setItem('jv-sidebar', JSON.stringify(sbState)); } catch (_) {} };
 sbState.open = sbState.open || {};
 
+// 왼쪽 구역 접기/펴기: 기본은 모두 접힘, 가장 최근에 쓴 구역만 펼침. 사용자가 누른 것은 이번 실행 동안 기억한다.
+const SB_SECS = ['proj', 'chat', 'idea', 'work', 'dev'];
+const sbSecOpen = {};
+let sbLastSec = null;
+function sbLatestSec() {
+  let best = { t: '', sec: null };
+  const upd = (t, sec) => { if (t && String(t) > best.t) best = { t: String(t), sec }; };
+  for (const c of sbData.convs) upd(c.updatedAt, c.projectId ? 'proj' : (c.kind === 'idea' ? 'idea' : 'chat'));
+  for (const w of sbData.works) upd(w.at, w.projectId ? 'proj' : (w.kind === 'dev' ? 'dev' : 'work'));
+  return best.sec;
+}
+function applySbFold() {
+  const latest = sbLatestSec();
+  if (latest !== sbLastSec) { sbLastSec = latest; if (latest) sbSecOpen[latest] = true; }   // 새로 쓴 구역은 자동으로 펼침
+  const searching = !!$('#sb-search').value.trim();
+  for (const k of SB_SECS) {
+    const el = document.querySelector('.sb-sec.sec-' + k); if (!el) continue;
+    const open = searching || !!sbSecOpen[k];
+    el.classList.toggle('collapsed', !open);
+    const b = el.querySelector('.sb-fold'); if (b) { b.textContent = open ? '▾' : '▸'; b.title = open ? '접기' : '펴기'; b.setAttribute('aria-expanded', String(open)); }
+  }
+}
+for (const k of SB_SECS) {
+  const h = document.querySelector('.sb-sec.sec-' + k + ' .sb-h'); if (!h) continue;
+  const b = document.createElement('button'); b.type = 'button'; b.className = 'sb-fold'; h.insertBefore(b, h.firstChild);
+  h.style.cursor = 'pointer';
+  h.addEventListener('click', e => {
+    if (e.target.closest('button') && !e.target.closest('.sb-fold')) return;   // ＋ 같은 다른 단추는 그대로 동작
+    const el = h.parentElement; sbSecOpen[k] = el.classList.contains('collapsed'); applySbFold();
+  });
+}
 async function refreshSidebar() {
   try { sbData = await api.sidebar.get(); renderSidebar(); } catch (_) {}
 }
@@ -1132,6 +1163,7 @@ function renderSidebar() {
   $('#sb-ideas').innerHTML = looseIdea.length ? looseIdea.map(c => convItem(c, false)).join('') : '<div class="sb-empty">아이디어가 없습니다</div>';
   $('#sb-devs').innerHTML = looseD.length ? looseD.map(w => workItem(w, false)).join('') : '<div class="sb-empty">개발 기록이 없습니다</div>';
   $('#sb-works').innerHTML = looseW.length ? looseW.map(w => workItem(w, false)).join('') : '<div class="sb-empty">작업 기록이 없습니다</div>';
+  applySbFold();
   const inp = sb.querySelector('.sb-edit');
   if (inp) { inp.focus(); inp.select(); }
 }
@@ -1240,7 +1272,7 @@ $('#sidebar').addEventListener('keydown', async e => {
 });
 $('#sidebar').addEventListener('focusout', e => { if (e.target.classList && e.target.classList.contains('sb-edit') && !e.isComposing) { setTimeout(() => { if (sbEdit || sbNewProj) { if (document.activeElement && document.activeElement.classList.contains('sb-edit')) return; sbEdit = null; sbNewProj = false; renderSidebar(); } }, 120); } });
 $('#sb-new').onclick = () => newChat(null);
-$('#sb-newproj').onclick = () => { sbNewProj = true; renderSidebar(); };
+$('#sb-newproj').onclick = () => { sbNewProj = true; sbSecOpen.proj = true; renderSidebar(); };
 $('#sb-search').addEventListener('input', renderSidebar);
 $('#sb-toggle').onclick = () => { sbState.hidden = !sbState.hidden; sbSave(); renderSidebar(); requestAnimationFrame(pushBounds); };
 api.sidebar.onChanged(refreshSidebar);

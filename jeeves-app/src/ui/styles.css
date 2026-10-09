@@ -345,3 +345,10 @@ body.layout-web #sidebar, #sidebar.collapsed { display: none; }
 .fs-ctl button:hover:not(:disabled) { background: var(--surface-2); }
 .fs-ctl button:disabled { opacity: .4; cursor: default; }
 #fs-up { font-size: 14px; }
+
+/* 왼쪽 구역 접기/펴기 */
+.sb-h { gap: 4px; }
+.sb-h .sb-tt { flex: 1; }
+.sb-fold { border: 0; background: none; color: var(--muted); cursor: pointer; width: 18px; height: 18px; padding: 0; font-size: 12px; line-height: 1; border-radius: 4px; flex: none; }
+.sb-fold:hover { background: var(--surface-2); }
+.sb-sec.collapsed > :not(.sb-h) { display: none; }

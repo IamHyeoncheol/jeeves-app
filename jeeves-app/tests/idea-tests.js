@@ -77,6 +77,17 @@ const cfgOf = (over = {}) => ({
     const k = Object.fromEntries(st.list().convs.map(c => [c.title, c.kind]));
     assert.deepStrictEqual(k, { '일반 질문': 'chat', '💡 새 아이디어': 'idea', '💡 예전 아이디어': 'idea' });
   });
+  await t('왼쪽 구역 접기: 가장 최근에 쓴 구역을 찾음(대화·아이디어·작업·개발·프로젝트)', () => {
+    const a = fs.readFileSync(require('path').join(__dirname, '../src/ui/app.js'), 'utf8');
+    const body = a.slice(a.indexOf('function sbLatestSec'), a.indexOf('function applySbFold'));
+    const latest = new Function('sbData', body + ';return sbLatestSec();');
+    const C = (updatedAt, kind, projectId) => ({ updatedAt, kind, projectId: projectId || null });
+    const W = (at, kind, projectId) => ({ at, kind, projectId: projectId || null });
+    assert.strictEqual(latest({ convs: [C('2026-10-09T01', 'chat'), C('2026-10-09T05', 'idea')], works: [W('2026-10-09T03', 'dev')] }), 'idea');
+    assert.strictEqual(latest({ convs: [C('2026-10-09T01', 'chat')], works: [W('2026-10-09T03', 'dev'), W('2026-10-09T02', 'work')] }), 'dev');
+    assert.strictEqual(latest({ convs: [C('2026-10-09T09', 'chat', 'p1')], works: [W('2026-10-09T03', 'work')] }), 'proj');
+    assert.strictEqual(latest({ convs: [], works: [] }), null);
+  });
   const bad = results.filter(r => !r[0]);
   results.forEach(r => console.log((r[0] ? 'PASS ' : 'FAIL ') + r[1] + (r[2] ? ' — ' + r[2] : '')));
   console.log(`idea-tests: ${results.length - bad.length}/${results.length}`);
