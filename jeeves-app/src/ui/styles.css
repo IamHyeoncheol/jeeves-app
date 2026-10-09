@@ -298,3 +298,8 @@ body.layout-web #sidebar, #sidebar.collapsed { display: none; }
 .ico { width: 14px; height: 14px; flex: none; vertical-align: -2px; margin-right: 5px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; color: var(--ink-2); }
 .sb-h .ico { color: var(--muted); }
 .sb-item .st .ico { margin: 0; }
+
+/* 설정(톱니바퀴) 단추: 크고 또렷하게 */
+#open-settings { width: 38px; height: 38px; color: var(--ink); }
+#open-settings:hover { background: var(--surface-2); }
+#open-settings svg { display: block; margin: auto; }
