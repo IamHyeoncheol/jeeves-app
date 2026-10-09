@@ -19,7 +19,11 @@ const tasks = new Map();
 let taskSeq = 0;
 const internalMcpToken = require('crypto').randomBytes(24).toString('base64url');   // 지브스가 띄운 Claude Code 전용(실행마다 새로 만들고 저장하지 않음)
 let subRestUntil = 0;   // 구독(Claude Code) 한도에 걸렸을 때 쉬는 시각(이때까지 구독을 건너뜀)
-let chatHistory = []; // 대화 모드 기록 (공통 형식)
+const { ConversationStore } = require('./conversations');
+let convs = null;       // 대화 저장소(껐다 켜도 유지)
+let activeConvId = null; // 지금 열려 있는 대화
+const liveWorks = new Map();   // 진행 중인 작업(왼쪽 목록 표시용)
+let chatHistory = []; // 지금 열린 대화의 AI 기록 (공통 형식, 대화 저장소에서 불러옴)
 let chatGradeMax = 'P'; // 이 대화에서 지금까지 다룬 가장 높은 정보 등급 (낮추려면 대화를 새로 시작해야 한다)
 const pickGrade = g => GRADES.includes(g) ? g : (GRADES.includes(config.get().infoGrade) ? config.get().infoGrade : 'I');
 let historyFile;
@@ -40,8 +44,11 @@ function loadTaskHistory() {
   try { return JSON.parse(fs.readFileSync(historyFile, 'utf8')); } catch (_) { return []; }
 }
 function saveTaskHistory(entry) {
+  const lw = liveWorks.get(entry.id); if (lw && lw.projectId) entry.projectId = lw.projectId;   // 시작할 때 고른 프로젝트 유지
   const list = [entry, ...loadTaskHistory()].slice(0, 100);
   try { fs.writeFileSync(historyFile, JSON.stringify(list, null, 2), 'utf8'); } catch (_) {}
+  liveWorks.delete(entry.id);
+  send('sidebar:changed');
 }
 
 function setupSession() {
@@ -147,14 +154,19 @@ ipcMain.handle('history:get', () => loadTaskHistory());
 // ── 대화(질문·답변) ───────────────────────────────────
 // 입력 글에 기밀·비밀 단어가 있는지 규칙으로만 살핀다(경고용, 자동 변경 없음)
 ipcMain.handle('grade:suspect', (_, text) => suspectDetail(text));
-ipcMain.handle('chat:send', async (_, { text, includePage, mode, infoGrade, lowerOk, gradeAck, liveAck, attachments }) => {
+ipcMain.handle('chat:send', async (_, { text, includePage, mode, infoGrade, lowerOk, gradeAck, liveAck, attachments, convId, projectId }) => {
   const role = mode === 'summarize' ? 'summarize' : 'chat';
   const grade = pickGrade(infoGrade);
+  // 이 대화의 저장된 기록을 불러온다(없으면 첫 답을 받을 때 새로 만든다)
+  let curConv = convId ? convs.get(convId) : null;
+  chatHistory = curConv ? curConv.history.slice() : [];
+  chatGradeMax = curConv ? (curConv.gradeMax || 'P') : 'P';
   // 정보 등급을 올리는 것은 자유, 낮추는 것은 확인 후 새 대화로만: 이미 오간 높은 등급 내용이 낮은 등급 공급자에게 가면 안 된다
   if (chatHistory.length && gradeRank(grade) < gradeRank(chatGradeMax)) {
     if (!lowerOk) return { ok: false, needConfirmLower: true, from: chatGradeMax, to: grade };
-    chatHistory = [];   // 확인하면 이전 대화는 비우고 새 대화로 시작
+    chatHistory = [];   // 확인하면 새 대화로 시작한다(이전 대화는 왼쪽 목록에 그대로 남음)
     chatGradeMax = 'P';
+    curConv = null;
   }
   const blocks = [];
   if (includePage || mode === 'summarize') {
@@ -207,7 +219,16 @@ ipcMain.handle('chat:send', async (_, { text, includePage, mode, infoGrade, lowe
     chatHistory.push({ role: 'user', content: [{ type: 'text', text: attLabel + (includePage ? '(현재 페이지 참고) ' : '') + (text || '페이지 요약 요청') + atts.filter(a => a.kind === 'text').map(a => `\n[첨부 글 ${a.name}]\n${a.text.slice(0, 20000)}`).join('') }] });   // 글 첨부는 이어지는 질문을 위해 기록에 남김(사진은 남기지 않음)
     chatHistory.push({ role: 'assistant', content: [{ type: 'text', text: answer }] });
     chatHistory = chatHistory.slice(-200);
-    return { ok: true, text: answer, model, costKrw, notice: notes.join(' / ') };
+    const notice = notes.join(' / ');
+    const meta = model + (costKrw != null ? ` · 약 ${costKrw}원` : '') + (notice ? ` · ↪ ${notice}` : '');
+    // 저장: 껐다 켜도 왼쪽 목록에서 다시 열 수 있게 한다(사진은 이름만, 글 첨부는 일부 저장)
+    const qText = text || (role === 'summarize' ? '이 페이지를 요약해 주세요.' : '');
+    try {
+      if (!curConv) curConv = convs.create({ title: (qText || (atts[0] && atts[0].name) || '새 대화').replace(/\s+/g, ' ').trim(), projectId, grade });
+      convs.saveTurn(curConv.id, { grade, kind: role === 'summarize' ? 'sum' : 'chat', page: !!includePage, q: qText, atts: atts.map(a => a.kind === 'image' ? { kind: 'image', name: a.name } : { kind: 'text', name: a.name, text: a.text.slice(0, 20000) }), a: answer, meta }, chatHistory, chatGradeMax);
+      activeConvId = curConv.id; send('sidebar:changed');
+    } catch (_) {}
+    return { ok: true, text: answer, model, costKrw, notice, meta, convId: curConv ? curConv.id : null, title: curConv ? curConv.title : '' };
   };
   const apiReq = { system, messages: [...chatHistory.slice(-20), userMsg], maxTokens: 8192, infoGrade: grade };
   const fromRes = res => done(res.content.filter(b => b.type === 'text').map(b => b.text).join('\n').trim(), res.model, res.costUsd == null ? null : Math.round(res.costUsd * rate * 10) / 10);
@@ -257,9 +278,38 @@ ipcMain.handle('chat:send', async (_, { text, includePage, mode, infoGrade, lowe
     return { ok: false, error: e.message + (failMsg && !e.message.includes(failMsg.slice(0, 20)) ? `\n(앞 단계 안내: ${failMsg.slice(0, 200)})` : '') };
   }
 });
-ipcMain.handle('chat:reset', () => { chatHistory = []; chatGradeMax = 'P'; });
+ipcMain.handle('chat:reset', () => { chatHistory = []; chatGradeMax = 'P'; activeConvId = null; });
 // 수정·재시도: k 번째 질문(0부터) 이전까지만 남기고 그 뒤 기록은 지운다(질문·답변이 한 쌍씩 쌓임)
-ipcMain.handle('chat:truncate', (_, k) => { chatHistory = chatHistory.slice(0, Math.max(0, (parseInt(k, 10) || 0) * 2)); return true; });
+ipcMain.handle('chat:truncate', (_, { convId, k }) => { if (convId) convs.truncate(convId, k); chatHistory = chatHistory.slice(0, Math.max(0, (parseInt(k, 10) || 0) * 2)); return true; });
+
+// ── 왼쪽 목록: 프로젝트·대화(Chat)·작업(Work) ─────────────────
+ipcMain.handle('sidebar:get', () => {
+  const l = convs.list();
+  const works = [...liveWorks.values()].map(w => ({ key: 'live' + w.id, id: w.id, title: w.title, goal: w.goal, at: w.at, running: true, projectId: w.projectId || null }));
+  const done = loadTaskHistory().map(h => ({ key: h.at, id: h.id, title: h.title, goal: h.goal, at: h.at, success: !!h.success, running: false, projectId: h.projectId || null }));
+  return { projects: l.projects, convs: l.convs, works: [...works, ...done], activeConvId };
+});
+ipcMain.handle('conv:open', (_, id) => {
+  const c = convs.get(id); if (!c) return null;
+  chatHistory = c.history.slice(); chatGradeMax = c.gradeMax || 'P'; activeConvId = c.id;
+  return c;
+});
+ipcMain.handle('conv:rename', (_, { id, title }) => { const r = convs.rename(id, title); send('sidebar:changed'); return r; });
+ipcMain.handle('conv:delete', (_, id) => { const r = convs.remove(id); if (activeConvId === id) { activeConvId = null; chatHistory = []; chatGradeMax = 'P'; } send('sidebar:changed'); return r; });
+ipcMain.handle('conv:set-project', (_, { id, projectId }) => { const r = convs.setProject(id, projectId); send('sidebar:changed'); return r; });
+ipcMain.handle('project:add', (_, name) => { const p = convs.addProject(name); send('sidebar:changed'); return p; });
+ipcMain.handle('project:rename', (_, { id, name }) => { const r = convs.renameProject(id, name); send('sidebar:changed'); return r; });
+ipcMain.handle('project:delete', (_, id) => {
+  const r = convs.removeProject(id);
+  const list = loadTaskHistory(); let ch = false;
+  for (const h of list) if (h.projectId === id) { delete h.projectId; ch = true; }
+  if (ch) { try { fs.writeFileSync(historyFile, JSON.stringify(list, null, 2), 'utf8'); } catch (_) {} }
+  send('sidebar:changed'); return r;
+});
+// 작업 기록 항목: 프로젝트 이동·삭제(작업은 시작 시각 at 이 열쇠)
+function editHistory(fn) { const list = loadTaskHistory(); const out = fn(list); try { fs.writeFileSync(historyFile, JSON.stringify(out, null, 2), 'utf8'); } catch (_) {} send('sidebar:changed'); return true; }
+ipcMain.handle('work:set-project', (_, { at, projectId }) => editHistory(list => { const pid = convs.list().projects.some(p => p.id === projectId) ? projectId : null; for (const h of list) if (h.at === at) { if (pid) h.projectId = pid; else delete h.projectId; } return list; }));
+ipcMain.handle('work:delete', (_, at) => editHistory(list => list.filter(h => h.at !== at)));
 // 답변 내보내기: 저장 위치를 사용자가 고른다(.md / .txt)
 ipcMain.handle('export:save', async (_, { name, text }) => {
   const r = await dialog.showSaveDialog(win, { title: '답변 내보내기', defaultPath: String(name || 'Jeeves_답변.md').replace(/[\\/:*?"<>|]/g, '_'), filters: [{ name: 'Markdown', extensions: ['md'] }, { name: '텍스트', extensions: ['txt'] }] });
@@ -354,7 +404,7 @@ function launchBuiltin(id, goal, tab, grade, all, title) {
   });
 }
 
-ipcMain.handle('agent:start', async (_, { goal, where, infoGrade }) => {
+ipcMain.handle('agent:start', async (_, { goal, where, infoGrade, projectId }) => {
   const all = config.get();
   const engine = all.engine.type;
   const grade = pickGrade(infoGrade);
@@ -377,6 +427,8 @@ ipcMain.handle('agent:start', async (_, { goal, where, infoGrade }) => {
   const title = goal.replace(/\s+/g, ' ').trim().slice(0, 24) + (goal.length > 24 ? '…' : '');
   if (tab.agent) { tab.title = '🤖 ' + title; tabs.emit('changed'); }
   send('agent:event', { taskId: id, type: 'created', goal, tabId: tab.id, where, title });
+  liveWorks.set(id, { id, title, goal, at: new Date().toISOString(), projectId: projectId || null });
+  send('sidebar:changed');
 
   if (engine === 'claude-code') {
     // 구독 엔진: 정품 Claude Code 실행 → Jeeves MCP 도구로 이 탭을 조작
@@ -390,6 +442,7 @@ ipcMain.handle('agent:start', async (_, { goal, where, infoGrade }) => {
         setTimeout(() => {
           const nid = ++taskSeq;
           send('agent:event', { taskId: nid, type: 'created', goal, tabId: tab.id, where, title: title + ' (자동 전환)' });
+          liveWorks.set(nid, { id: nid, title: title + ' (자동 전환)', goal, at: new Date().toISOString(), projectId: projectId || null });
           send('router:notice', '구독 한도 도달 → 내장 에이전트(무료·API)로 같은 작업을 이어서 진행합니다');
           try { launchBuiltin(nid, goal, tab, grade, c, title); } catch (e) { send('agent:event', { taskId: nid, type: 'error', message: '자동 전환 실패: ' + e.message }); }
         }, 0);
@@ -425,6 +478,7 @@ ipcMain.handle('agent:show-tab', (_, id) => {
 app.whenReady().then(async () => {
   const userData = app.getPath('userData');
   historyFile = path.join(userData, 'jeeves-history.json');
+  convs = new ConversationStore(path.join(userData, 'jeeves-conversations.json'));
   config = new ConfigStore(userData, safeStorage);
   router = new ModelRouter(() => config.get(), (url, opts) => net.fetch(url, opts));
   router.onNotice = msg => send('router:notice', msg);   // 자동 전환 알림(화면에 표시)
@@ -436,6 +490,6 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('will-quit', () => { if (mcp) mcp.stop(); for (const t of tasks.values()) { try { t.stop(); } catch (_) {} } });
+app.on('will-quit', () => { try { convs && convs.flush(); } catch (_) {} if (mcp) mcp.stop(); for (const t of tasks.values()) { try { t.stop(); } catch (_) {} } });
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.on('window-all-closed', () => app.quit());

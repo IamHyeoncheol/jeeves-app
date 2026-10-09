@@ -294,6 +294,51 @@ function fakeFetch(handler) {
     } finally { server.stop(); }
   });
 
+  await t('대화 저장소: 껐다 켜도 남고, 수정·재시도(되돌리기)·이름·프로젝트·삭제가 동작', async () => {
+    const { ConversationStore } = require('../src/main/conversations');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conv-'));
+    const file = path.join(dir, 'c.json');
+    let n = 0;
+    const st = new ConversationStore(file, () => new Date(Date.UTC(2026, 9, 9, 0, 0, ++n)).toISOString());
+    const pj = st.addProject('ELP 제안');
+    const c1 = st.create({ title: '첫 대화', projectId: pj.id, grade: 'I' });
+    const H = (q, a) => [{ role: 'user', content: [{ type: 'text', text: q }] }, { role: 'assistant', content: [{ type: 'text', text: a }] }];
+    let hist = [];
+    for (const [q, a] of [['q1', 'a1'], ['q2', 'a2'], ['q3', 'a3']]) { hist = hist.concat(H(q, a)); st.saveTurn(c1.id, { q, a, grade: 'I', kind: 'chat' }, hist, 'I'); }
+    const c2 = st.create({ title: '둘째', projectId: 'nope', grade: 'P' });   // 없는 프로젝트는 무시
+    assert.strictEqual(c2.projectId, null);
+    st.flush(); st.save(true);
+    const st2 = new ConversationStore(file);                                   // 앱을 껐다 켠 것처럼 다시 읽음
+    const l = st2.list();
+    assert.deepStrictEqual(l.convs.map(c => c.title), ['둘째', '첫 대화']);   // 최근 순
+    assert.strictEqual(l.convs[1].turns, 3);
+    assert.strictEqual(st2.get(c1.id).turns[2].a, 'a3');
+    assert.ok(st2.truncate(c1.id, 1));                                         // 2번째 질문부터 지움
+    assert.strictEqual(st2.get(c1.id).turns.length, 1);
+    assert.strictEqual(st2.get(c1.id).history.length, 2);
+    assert.ok(st2.rename(c1.id, '  새 제목  ') && st2.get(c1.id).title === '새 제목');
+    assert.ok(!st2.rename(c1.id, '   '));
+    assert.ok(st2.setProject(c2.id, pj.id) && st2.get(c2.id).projectId === pj.id);
+    assert.ok(st2.removeProject(pj.id));                                       // 프로젝트를 지워도 대화는 남음
+    assert.strictEqual(st2.get(c2.id).projectId, null);
+    assert.ok(st2.remove(c1.id) && !st2.get(c1.id));
+    assert.ok(!st2.remove('없는id'));
+  });
+
+  await t('대화 저장소: 깨진 파일은 따로 보관하고 새로 시작, 100턴 넘으면 오래된 것부터 정리', async () => {
+    const { ConversationStore } = require('../src/main/conversations');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conv-'));
+    const file = path.join(dir, 'c.json');
+    fs.writeFileSync(file, '{깨진 json');
+    const st = new ConversationStore(file);
+    assert.strictEqual(st.list().convs.length, 0);
+    assert.ok(fs.existsSync(file + '.broken'));
+    const c = st.create({ title: 't', grade: 'P' });
+    for (let i = 0; i < 105; i++) st.saveTurn(c.id, { q: 'q' + i, a: 'a' + i }, [], 'P');
+    assert.strictEqual(st.get(c.id).turns.length, 100);
+    assert.strictEqual(st.get(c.id).turns[0].q, 'q5');
+  });
+
   // ── 자동 전환(한도·잔액 소진 시 다음 공급자로) ─────────────────
   const okOpenAI = { status: 200, body: { choices: [{ message: { content: '전환 성공' } }], usage: { prompt_tokens: 3, completion_tokens: 2 } } };
   const creditErr = { status: 400, body: { error: { message: 'Your credit balance is too low to access the Anthropic API.' } } };

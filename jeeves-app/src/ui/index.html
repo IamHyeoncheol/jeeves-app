@@ -23,6 +23,15 @@
   </header>
 
   <main id="body">
+    <aside id="sidebar" aria-label="프로젝트·대화·작업 목록">
+      <div class="sb-top"><button id="sb-new" class="primary" title="새 대화 시작">＋ 새 대화</button></div>
+      <input id="sb-search" type="search" placeholder="대화·작업 검색">
+      <div id="sb-body">
+        <div class="sb-sec"><div class="sb-h"><span>프로젝트</span><button id="sb-newproj" class="sb-plus" title="새 프로젝트">＋</button></div><div id="sb-projects"></div></div>
+        <div class="sb-sec"><div class="sb-h"><span>대화 (Chat)</span></div><div id="sb-chats"></div></div>
+        <div class="sb-sec"><div class="sb-h"><span>작업 (Work)</span></div><div id="sb-works"></div></div>
+      </div>
+    </aside>
     <section id="web-area"><div id="web-placeholder">페이지를 불러오는 중…</div></section>
     <div id="splitter" role="separator" aria-orientation="vertical" tabindex="0" title="끌어서 크기 조절 · 두 번 클릭하면 기본 크기 · ←/→ 키로도 조절"></div>
     <aside id="preview" aria-label="웹 화면 미리보기">
@@ -41,7 +50,7 @@
     </aside>
     <aside id="panel">
       <div id="panel-head">
-        <div class="brand"><span class="logo">✦</span> Jeeves <small>테스트 버전 0.4.0</small></div>
+        <div class="brand"><button class="icon" id="sb-toggle" title="목록 접기/펴기">☰</button><span class="logo">✦</span> Jeeves <small>테스트 버전 0.4.0</small></div>
         <div class="seg" id="panel-tabs">
           <button data-view="chat" class="on">대화</button>
           <button data-view="history">작업 기록</button>

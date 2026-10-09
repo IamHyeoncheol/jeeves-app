@@ -32,12 +32,25 @@ contextBridge.exposeInMainWorld('jeeves', {
   chat: {
     send: (text, opts) => ipcRenderer.invoke('chat:send', { text, ...opts }),
     reset: () => ipcRenderer.invoke('chat:reset'),
-    truncate: k => ipcRenderer.invoke('chat:truncate', k),
+    truncate: (convId, k) => ipcRenderer.invoke('chat:truncate', { convId, k }),
     exportText: (name, text) => ipcRenderer.invoke('export:save', { name, text }),
     feedback: f => ipcRenderer.invoke('feedback:save', f)
   },
+  sidebar: {
+    get: () => ipcRenderer.invoke('sidebar:get'),
+    onChanged: fn => on('sidebar:changed', fn),
+    openConv: id => ipcRenderer.invoke('conv:open', id),
+    renameConv: (id, title) => ipcRenderer.invoke('conv:rename', { id, title }),
+    deleteConv: id => ipcRenderer.invoke('conv:delete', id),
+    setConvProject: (id, projectId) => ipcRenderer.invoke('conv:set-project', { id, projectId }),
+    addProject: name => ipcRenderer.invoke('project:add', name),
+    renameProject: (id, name) => ipcRenderer.invoke('project:rename', { id, name }),
+    deleteProject: id => ipcRenderer.invoke('project:delete', id),
+    setWorkProject: (at, projectId) => ipcRenderer.invoke('work:set-project', { at, projectId }),
+    deleteWork: at => ipcRenderer.invoke('work:delete', at)
+  },
   agent: {
-    start: (goal, where, infoGrade) => ipcRenderer.invoke('agent:start', { goal, where, infoGrade }),
+    start: (goal, where, infoGrade, projectId) => ipcRenderer.invoke('agent:start', { goal, where, infoGrade, projectId }),
     stop: id => ipcRenderer.invoke('agent:stop', id),
     respond: (id, payload) => ipcRenderer.invoke('agent:respond', { id, payload }),
     showTab: id => ipcRenderer.invoke('agent:show-tab', id),

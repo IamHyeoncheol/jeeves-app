@@ -260,3 +260,36 @@ body.resizing #web-area::after { content: '크기 조절 중…'; position: abso
 .msg.user .att { background: var(--surface); border-color: var(--line); color: var(--ink); }
 .msg.user .att .sub { color: var(--muted); }
 #composer.dragover { outline: 2px dashed var(--accent); outline-offset: -4px; background: var(--accent-soft); }
+
+/* 왼쪽 목록: 프로젝트·대화(Chat)·작업(Work) */
+#sidebar { width: 252px; flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px; border-right: 1px solid var(--line); background: var(--surface-2); min-height: 0; order: 0; }
+body.layout-web #sidebar, #sidebar.collapsed { display: none; }
+.sb-top button { width: 100%; }
+#sb-search { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; background: var(--bg); font-size: 12.5px; outline: none; }
+#sb-search:focus { border-color: var(--accent); }
+#sb-body { flex: 1; overflow-y: auto; min-height: 0; }
+.sb-sec { margin-bottom: 10px; }
+.sb-h { display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; font-weight: 700; color: var(--muted); padding: 4px 6px; text-transform: none; }
+.sb-plus { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 14px; border-radius: 6px; padding: 0 6px; }
+.sb-plus:hover { background: var(--line); color: var(--ink); }
+.sb-item { display: flex; align-items: center; gap: 4px; padding: 5px 6px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--ink); }
+.sb-item:hover { background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.sb-item.on { background: var(--accent-soft); }
+.sb-item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-item .st { font-size: 11px; color: var(--muted); }
+.sb-item .more, .sb-item .plus { border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: 6px; padding: 0 5px; visibility: hidden; }
+.sb-item:hover .more, .sb-item:hover .plus, .sb-item.on .more { visibility: visible; }
+.sb-item .more:hover, .sb-item .plus:hover { background: var(--line); color: var(--ink); }
+.sb-item.proj { font-weight: 600; }
+.sb-item.child { margin-left: 16px; }
+.sb-item.hl-proj { background: var(--accent-soft); }
+.sb-empty { font-size: 12px; color: var(--muted); padding: 2px 8px; }
+.sb-edit { flex: 1; min-width: 0; border: 1px solid var(--accent); border-radius: 6px; padding: 2px 6px; background: var(--bg); color: var(--ink); font: inherit; outline: none; }
+.sb-menu { position: fixed; z-index: 50; min-width: 170px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 4px; font-size: 13px; }
+.sb-menu button { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--ink); padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.sb-menu button:hover { background: var(--surface-2); }
+.sb-menu .danger { color: var(--warn); }
+.sb-menu .sep { height: 1px; background: var(--line); margin: 4px 2px; }
+.sb-menu .lbl { padding: 4px 10px; font-size: 11px; color: var(--muted); }
+.hist.hl { outline: 2px solid var(--accent); background: var(--accent-soft); }
+.brand .icon { width: 28px; height: 28px; margin-right: 4px; }

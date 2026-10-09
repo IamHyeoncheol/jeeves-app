@@ -217,6 +217,7 @@ setMode('ask');
 
 // ── 메시지 ────────────────────────────────────────────
 const box = $('#messages');
+const welcomeHTML = box.innerHTML;   // 새 대화를 시작할 때 다시 보여 줄 첫 화면
 function scrollDown() { box.scrollTop = box.scrollHeight; }
 // 메시지 아래 작은 동작 단추 줄
 function actBar(buttons) {
@@ -258,7 +259,13 @@ async function cutFrom(userEl) {
   const k = [...box.querySelectorAll('.msg.ai[data-chat]')].filter(a => userEl.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_PRECEDING).length;
   let n = userEl;
   while (n) { const nx = n.nextElementSibling; if (n.classList.contains('msg')) n.remove(); n = nx; }
-  await api.chat.truncate(k);
+  await api.chat.truncate(curConvId, k);
+}
+// 껐다 켠 뒤 다시 연 대화의 사진은 저장돼 있지 않아 다시 보낼 수 없다 → 빼고 알려 줌
+function liveAtts(info) {
+  const all = (info && info.attachments) || [], ok = all.filter(a => !a.lost);
+  if (ok.length < all.length) addErr('이전에 첨부한 사진은 저장하지 않아 다시 보낼 수 없습니다. 필요하면 사진을 다시 첨부해 주세요.');
+  return ok;
 }
 function userBefore(aiEl) { let n = aiEl.previousElementSibling; while (n && !n.classList.contains('user')) n = n.previousElementSibling; return n; }
 box.addEventListener('click', async e => {
@@ -266,12 +273,12 @@ box.addEventListener('click', async e => {
   const msg = btn.closest('.msg'); const act = btn.dataset.act; const raw = msg._raw || '';
   if (act === 'copy') { try { await api.copy(raw); toastIn(msg, '복사했습니다'); } catch (_) {} return; }
   if (msg.classList.contains('user')) {
-    if (act === 'edit') { const at = (msg._info.attachments || []).slice(); await cutFrom(msg); $('#input').value = raw; attachments = at; renderTray(); setMode('ask'); $('#input').focus(); return; }
-    if (act === 'retry') { const info = msg._info; await cutFrom(msg); sendMessage(info.kind === 'sum' ? '' : raw, info.kind === 'sum' ? { summarize: true } : { includePage: info.page, attachments: info.attachments || [] }); return; }
+    if (act === 'edit') { const at = liveAtts(msg._info).slice(); await cutFrom(msg); $('#input').value = raw; attachments = at; renderTray(); setMode('ask'); $('#input').focus(); return; }
+    if (act === 'retry') { const info = msg._info; await cutFrom(msg); sendMessage(info.kind === 'sum' ? '' : raw, info.kind === 'sum' ? { summarize: true } : { includePage: info.page, attachments: liveAtts(info) }); return; }
     return;
   }
   const u = userBefore(msg);
-  if (act === 'retry') { if (!u) return; const info = u._info, rawQ = u._raw; await cutFrom(u); sendMessage(info.kind === 'sum' ? '' : rawQ, info.kind === 'sum' ? { summarize: true } : { includePage: info.page, attachments: info.attachments || [] }); return; }
+  if (act === 'retry') { if (!u) return; const info = u._info, rawQ = u._raw; await cutFrom(u); sendMessage(info.kind === 'sum' ? '' : rawQ, info.kind === 'sum' ? { summarize: true } : { includePage: info.page, attachments: liveAtts(info) }); return; }
   if (act === 'export') {
     const q = u ? u._raw : '';
     const r = await api.chat.exportText(`Jeeves_답변_${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}.md`, `# 질문\n\n${q}\n\n# 답변\n\n${raw}\n\n---\n${msg._meta || ''}\n`);
@@ -347,8 +354,8 @@ function fmtSize(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Ma
 function attChip(a, removable) {
   const el = document.createElement('div');
   el.className = 'att';
-  const sub = a.kind === 'image' ? '사진' : `글 ${a.text.length.toLocaleString()}자`;
-  el.innerHTML = (a.kind === 'image' ? `<img alt="" src="data:${a.mediaType};base64,${a.data}">` : '📄') + `<span><div class="nm">${esc(a.name)}</div><div class="sub">${sub}</div></span>` + (removable ? '<button class="x" title="빼기">✕</button>' : '');
+  const sub = a.kind === 'image' ? '사진' : `글 ${(a.text || '').length.toLocaleString()}자`;
+  el.innerHTML = (a.kind === 'image' ? (a.data ? `<img alt="" src="data:${a.mediaType};base64,${a.data}">` : '🖼') : '📄') + `<span><div class="nm">${esc(a.name)}</div><div class="sub">${a.kind === 'image' && !a.data ? '사진(저장 안 됨)' : sub}</div></span>` + (removable ? '<button class="x" title="빼기">✕</button>' : '');
   if (removable) el.querySelector('.x').onclick = () => { attachments = attachments.filter(x => x !== a); renderTray(); };
   return el;
 }
@@ -440,7 +447,7 @@ async function sendMessage(textOverride, opts = {}) {
     if (atts.length) { $('#input').value = text; addErr('작업(Work) 모드에서는 파일·사진을 첨부할 수 없습니다. 첨부를 빼거나 대화(Chat) 모드로 바꿔 주세요.'); return; }
     const where = $('#where').value;
     addUser(text, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act' });
-    const r = await api.agent.start(text, where, chatGrade);
+    const r = await api.agent.start(text, where, chatGrade, pendingProject || activeProject);
     if (r.error) { addErr(r.error); return; }
     ensureCard(r.id, { goal: text });
     return;
@@ -452,7 +459,7 @@ async function sendMessage(textOverride, opts = {}) {
   wait.className = 'msg ai typing';
   box.appendChild(wait); scrollDown();
   $('#send').disabled = true;
-  const chatOpts = { includePage: usePage, mode: isSummary ? 'summarize' : 'chat', infoGrade: chatGrade, gradeAck, attachments: atts };
+  const chatOpts = { includePage: usePage, mode: isSummary ? 'summarize' : 'chat', infoGrade: chatGrade, gradeAck, attachments: atts, convId: curConvId, projectId: curConvId ? null : (pendingProject || activeProject) };
   let res = await api.chat.send(text, chatOpts);
   if (res.needLive) {
     // 실시간 정보 질문: 질문 모드는 인터넷을 못 보므로 작업 모드(검색 가능)로 보낼지 묻는다
@@ -462,7 +469,7 @@ async function sendMessage(textOverride, opts = {}) {
       const goal = `구글에서 검색해서 확인하고 결과를 쉽게 정리해 줘: ${text}`;
       const where = $('#where').value;
       addUser(goal, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act' });
-      const r = await api.agent.start(goal, where, chatGrade);
+      const r = await api.agent.start(goal, where, chatGrade, pendingProject || activeProject);
       if (r.error) addErr(r.error); else ensureCard(r.id, { goal });
       return;
     }
@@ -473,7 +480,8 @@ async function sendMessage(textOverride, opts = {}) {
     $('#send').disabled = true;
     const r2 = await api.chat.send(text, { ...chatOpts, liveAck: true });
     w2.remove(); $('#send').disabled = false;
-    if (r2.ok) addAI(r2.text, r2.model + (r2.costKrw != null ? ` · 약 ${r2.costKrw}원` : '') + (r2.notice ? ` · ↪ ${r2.notice}` : ''), true); else addErr(r2.error || '답변을 받지 못했습니다.');
+    if (r2.ok && r2.convId) { curConvId = r2.convId; pendingProject = null; }
+    if (r2.ok) addAI(r2.text, r2.meta || r2.model, true); else addErr(r2.error || '답변을 받지 못했습니다.');
     return;
   }
   if (res.needGrade) {
@@ -487,19 +495,24 @@ async function sendMessage(textOverride, opts = {}) {
   if (res.needConfirmLower) {
     // 등급을 낮추면 지금까지의 높은 등급 대화가 낮은 등급 서비스로 넘어갈 수 있다 → 확인 후 대화를 비우고 새로 시작
     if (confirm(`이 대화는 ${res.from}(${GRADE_TXT[res.from]}) 등급 내용을 다뤘습니다.\n${res.to}(${GRADE_TXT[res.to]})로 낮추면 이전 대화를 지우고 새 대화로 시작합니다.\n\n계속할까요?`)) {
+      // 새 대화로 시작: 화면에서도 이전 내용을 치우고 방금 보낸 질문만 남긴다(이전 대화는 왼쪽 목록에 그대로 있음)
+      const keep = [...box.querySelectorAll('.msg.user')].pop();
+      box.innerHTML = ''; if (keep) box.appendChild(keep); box.appendChild(wait);
+      curConvId = null; chatOpts.convId = null;
       res = await api.chat.send(text, { ...chatOpts, lowerOk: true });
-      if (res.ok) addAI(`(정보 등급을 ${chatOpts.infoGrade}로 낮춰 이전 대화는 지우고 새 대화로 시작했습니다. 위쪽 메시지는 AI가 더 이상 참고하지 않습니다.)`);
+      if (res.ok) addAI(`(정보 등급을 ${chatOpts.infoGrade}로 낮춰 새 대화로 시작했습니다. 이전 대화는 왼쪽 목록에 그대로 있습니다.)`);
     } else { setChatGrade(res.from); res = { ok: false, error: `등급을 ${res.from}(${GRADE_TXT[res.from]}) 그대로 두어 보내지 않았습니다. 다시 보내려면 보내기를 눌러 주세요.` }; }
   }
   wait.remove();
   $('#send').disabled = false;
-  if (res.ok) addAI(res.text, res.model + (res.costKrw != null ? ` · 약 ${res.costKrw}원` : '') + (res.notice ? ` · ↪ ${res.notice}` : ''), true); else addErr(res.error);
+  if (res.ok && res.convId) { curConvId = res.convId; pendingProject = null; }
+  if (res.ok) addAI(res.text, res.meta || res.model, true); else addErr(res.error);
 }
 $('#send').onclick = () => sendMessage();
 $('#input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); }
 });
-$('#reset-chat').onclick = async () => { await api.chat.reset(); setChatGrade((cfg && cfg.infoGrade) || 'I'); box.innerHTML = ''; addAI('새 대화를 시작합니다. 이전 대화 내용은 AI가 더 이상 참고하지 않습니다.'); };
+$('#reset-chat').onclick = () => newChat(null);
 box.addEventListener('click', e => {
   const q = e.target.closest('[data-quick]');
   if (!q) return;
@@ -613,7 +626,7 @@ async function renderHistory() {
   const list = await api.history();
   const el = $('#history-list');
   if (!list.length) { el.innerHTML = '<p class="muted">아직 작업 기록이 없습니다.</p>'; return; }
-  el.innerHTML = list.map(h => `<div class="hist"><div class="h1"><span class="badge ${h.success ? 'ok' : 'fail'}">${h.success ? '완료' : '중단'}</span>${esc(h.title)}<span class="when">${new Date(h.at).toLocaleString('ko-KR')}</span></div>
+  el.innerHTML = list.map(h => `<div class="hist" data-at="${esc(h.at)}"><div class="h1"><span class="badge ${h.success ? 'ok' : 'fail'}">${h.success ? '완료' : '중단'}</span>${esc(h.title)}<span class="when">${new Date(h.at).toLocaleString('ko-KR')}</span></div>
     <div class="muted" style="font-size:12px;margin-top:2px">${esc(h.goal)}</div><div class="sum">${esc(h.summary || '')}</div>${h.costKrw != null ? `<div class="stats">약 ${h.costKrw.toLocaleString()}원 · Claude ${h.llmCalls || 0}회 · Jev ${h.jevCalls || 0}회</div>` : ''}</div>`).join('');
 }
 
@@ -861,3 +874,136 @@ api.config.onNotice(m => {
   d.innerHTML = '<b>🔁 자동 전환</b> ' + esc(m);
   box.appendChild(d); scrollDown();
 });
+
+// ── 왼쪽 목록: 프로젝트·대화(Chat)·작업(Work) ───────────────────
+let curConvId = null;        // 지금 열려 있는 대화(아직 첫 답을 받기 전이면 null)
+let activeProject = null;    // 지금 고른 프로젝트(새 대화·작업이 여기로 들어감)
+let pendingProject = null;   // "프로젝트 ＋"로 시작한 새 대화가 들어갈 프로젝트
+let sbData = { projects: [], convs: [], works: [] };
+let sbEdit = null;           // 이름 바꾸는 중인 항목 { type, id }
+let sbNewProj = false;
+const sbState = (() => { try { return JSON.parse(localStorage.getItem('jv-sidebar') || '{}'); } catch (_) { return {}; } })();
+const sbSave = () => { try { localStorage.setItem('jv-sidebar', JSON.stringify(sbState)); } catch (_) {} };
+sbState.open = sbState.open || {};
+
+async function refreshSidebar() {
+  try { sbData = await api.sidebar.get(); renderSidebar(); } catch (_) {}
+}
+function sbMatch(q, ...texts) { return !q || texts.some(t => String(t || '').toLowerCase().includes(q)); }
+function renderSidebar() {
+  const sb = $('#sidebar'); if (!sb) return;
+  sb.classList.toggle('collapsed', !!sbState.hidden);
+  const q = $('#sb-search').value.trim().toLowerCase();
+  const convItem = (c, child) => `<div class="sb-item ${child ? 'child' : ''} ${c.id === curConvId ? 'on' : ''}" data-conv="${esc(c.id)}" title="${esc(c.title)}">${sbEdit && sbEdit.type === 'conv' && sbEdit.id === c.id ? `<input class="sb-edit" value="${esc(c.title)}">` : `<span class="t">💬 ${esc(c.title)}</span><button class="more" data-more="conv:${esc(c.id)}" title="더보기">⋯</button>`}</div>`;
+  const workItem = (w, child) => `<div class="sb-item ${child ? 'child' : ''}" data-work="${esc(w.key)}" title="${esc(w.goal || w.title)}"><span class="t">🤖 ${esc(w.title)}</span><span class="st">${w.running ? '⏳' : w.success ? '✓' : '✗'}</span>${w.running ? '' : `<button class="more" data-more="work:${esc(w.at)}" title="더보기">⋯</button>`}</div>`;
+  const convs = sbData.convs.filter(c => sbMatch(q, c.title)), works = sbData.works.filter(w => sbMatch(q, w.title, w.goal));
+  let ph = sbNewProj ? '<div class="sb-item"><input class="sb-edit" id="sb-newproj-input" placeholder="프로젝트 이름"></div>' : '';
+  for (const p of sbData.projects) {
+    const pc = convs.filter(c => c.projectId === p.id), pw = works.filter(w => w.projectId === p.id);
+    const all = sbData.convs.filter(c => c.projectId === p.id).length + sbData.works.filter(w => w.projectId === p.id).length;
+    if (q && !pc.length && !pw.length && !sbMatch(q, p.name)) continue;
+    const open = q ? true : !!sbState.open[p.id];
+    ph += `<div class="sb-item proj ${p.id === activeProject ? 'hl-proj' : ''}" data-proj="${esc(p.id)}">${sbEdit && sbEdit.type === 'proj' && sbEdit.id === p.id ? `<input class="sb-edit" value="${esc(p.name)}">` : `<span class="t">${open ? '📂' : '📁'} ${esc(p.name)} <span class="st">${all}</span></span><button class="plus" data-newin="${esc(p.id)}" title="이 프로젝트에 새 대화">＋</button><button class="more" data-more="proj:${esc(p.id)}" title="더보기">⋯</button>`}</div>`;
+    if (open) ph += pc.map(c => convItem(c, true)).join('') + pw.map(w => workItem(w, true)).join('') + (!pc.length && !pw.length ? '<div class="sb-empty" style="margin-left:16px">비어 있음</div>' : '');
+  }
+  $('#sb-projects').innerHTML = ph || '<div class="sb-empty">＋를 눌러 프로젝트를 만드세요</div>';
+  const loose = convs.filter(c => !c.projectId), looseW = works.filter(w => !w.projectId);
+  $('#sb-chats').innerHTML = loose.length ? loose.map(c => convItem(c, false)).join('') : '<div class="sb-empty">대화가 없습니다</div>';
+  $('#sb-works').innerHTML = looseW.length ? looseW.map(w => workItem(w, false)).join('') : '<div class="sb-empty">작업 기록이 없습니다</div>';
+  const inp = sb.querySelector('.sb-edit');
+  if (inp) { inp.focus(); inp.select(); }
+}
+function closeSbMenu() { const m = document.querySelector('.sb-menu'); if (m) m.remove(); }
+function showSbMenu(btn, spec) {
+  closeSbMenu();
+  const [type, id] = [spec.slice(0, spec.indexOf(':')), spec.slice(spec.indexOf(':') + 1)];
+  const m = document.createElement('div'); m.className = 'sb-menu';
+  const add = (label, fn, cls) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = async () => { closeSbMenu(); await fn(); }; m.appendChild(b); };
+  const moveList = (cur, apply) => {
+    const l = document.createElement('div'); l.className = 'lbl'; l.textContent = '프로젝트로 이동'; m.appendChild(l);
+    sbData.projects.forEach(p => { if (p.id !== cur) add('→ ' + p.name, () => apply(p.id)); });
+    if (cur) add('→ 프로젝트 없음', () => apply(null));
+    if (!sbData.projects.length) { const e = document.createElement('div'); e.className = 'lbl'; e.textContent = '(만든 프로젝트가 없습니다)'; m.appendChild(e); }
+  };
+  if (type === 'conv') {
+    const c = sbData.convs.find(x => x.id === id) || {};
+    add('이름 바꾸기', () => { sbEdit = { type: 'conv', id }; renderSidebar(); });
+    moveList(c.projectId, pid => api.sidebar.setConvProject(id, pid));
+    m.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
+    add('삭제', async () => { if (!confirm('이 대화를 삭제할까요? 되돌릴 수 없습니다.')) return; if (id === curConvId) newChat(null); await api.sidebar.deleteConv(id); }, 'danger');
+  } else if (type === 'work') {
+    const w = sbData.works.find(x => x.at === id) || {};
+    moveList(w.projectId, pid => api.sidebar.setWorkProject(id, pid));
+    m.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
+    add('작업 기록 삭제', async () => { if (confirm('이 작업 기록을 삭제할까요? 되돌릴 수 없습니다.')) await api.sidebar.deleteWork(id); }, 'danger');
+  } else if (type === 'proj') {
+    add('이름 바꾸기', () => { sbEdit = { type: 'proj', id }; renderSidebar(); });
+    m.appendChild(Object.assign(document.createElement('div'), { className: 'sep' }));
+    add('프로젝트 삭제 (안의 대화·작업은 남음)', async () => { if (!confirm('프로젝트를 삭제할까요?\n안에 있던 대화·작업은 지워지지 않고 "프로젝트 없음"으로 돌아갑니다.')) return; if (activeProject === id) activeProject = null; await api.sidebar.deleteProject(id); }, 'danger');
+  }
+  document.body.appendChild(m);
+  const r = btn.getBoundingClientRect();
+  m.style.left = Math.min(r.left, innerWidth - m.offsetWidth - 8) + 'px';
+  m.style.top = Math.min(r.bottom + 2, innerHeight - m.offsetHeight - 8) + 'px';
+}
+document.addEventListener('click', e => { if (!e.target.closest('.sb-menu') && !e.target.closest('[data-more]')) closeSbMenu(); });
+
+function showPanelView(v) { const b = document.querySelector(`#panel-tabs button[data-view="${v}"]`); if (b) b.click(); }
+async function newChat(projectId) {
+  await api.chat.reset();
+  curConvId = null; pendingProject = projectId || null; activeProject = projectId || null;
+  setChatGrade((cfg && cfg.infoGrade) || 'I');
+  attachments = []; renderTray();
+  box.innerHTML = welcomeHTML; $('#input').value = '';
+  showPanelView('chat'); setMode('ask'); $('#input').focus();
+  renderSidebar();
+}
+async function openConv(id) {
+  if ($('#send').disabled) return;   // 답을 기다리는 중에는 옮기지 않음
+  const c = await api.sidebar.openConv(id);
+  if (!c) { refreshSidebar(); return; }
+  curConvId = c.id; activeProject = c.projectId || null; pendingProject = null;
+  showPanelView('chat'); setMode('ask');
+  box.innerHTML = '';
+  for (const t of c.turns) {
+    const atts = (t.atts || []).map(a => a.kind === 'image' ? { kind: 'image', name: a.name, lost: true } : { kind: 'text', name: a.name, text: a.text || '' });
+    addUser(t.q, (t.kind === 'sum' ? '📄 요약' : (t.page ? '💬 대화 · 페이지 포함' : '💬 대화')) + ` · 🔒${t.grade}`, { kind: t.kind === 'sum' ? 'sum' : 'chat', page: !!t.page, attachments: atts });
+    addAI(t.a, t.meta, true);
+  }
+  setChatGrade(c.gradeMax || 'I');
+  attachments = []; renderTray(); scrollDown(); renderSidebar();
+}
+async function openWork(key) {
+  const w = sbData.works.find(x => x.key === key); if (!w) return;
+  if (w.running) { showPanelView('chat'); const card = cards.get(w.id); if (card && card.el) card.el.scrollIntoView({ block: 'center' }); return; }
+  showPanelView('history');
+  await renderHistory();
+  const el = [...document.querySelectorAll('#history-list .hist')].find(x => x.dataset.at === w.at);
+  if (el) { el.scrollIntoView({ block: 'center' }); el.classList.add('hl'); setTimeout(() => el.classList.remove('hl'), 2500); }
+}
+async function commitEdit(val) {
+  const e = sbEdit; sbEdit = null;
+  const v = String(val || '').trim();
+  if (e && v) { if (e.type === 'conv') await api.sidebar.renameConv(e.id, v); else await api.sidebar.renameProject(e.id, v); } else renderSidebar();
+}
+$('#sidebar').addEventListener('click', async e => {
+  const more = e.target.closest('[data-more]'); if (more) { e.stopPropagation(); showSbMenu(more, more.dataset.more); return; }
+  const plus = e.target.closest('[data-newin]'); if (plus) { e.stopPropagation(); sbState.open[plus.dataset.newin] = true; sbSave(); newChat(plus.dataset.newin); return; }
+  if (e.target.closest('.sb-edit')) return;
+  const conv = e.target.closest('[data-conv]'); if (conv) { openConv(conv.dataset.conv); return; }
+  const work = e.target.closest('[data-work]'); if (work) { openWork(work.dataset.work); return; }
+  const proj = e.target.closest('[data-proj]');
+  if (proj) { const id = proj.dataset.proj; sbState.open[id] = !sbState.open[id]; sbSave(); activeProject = id; renderSidebar(); }
+});
+$('#sidebar').addEventListener('keydown', async e => {
+  if (!e.target.classList.contains('sb-edit')) return;
+  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); const v = e.target.value; if (e.target.id === 'sb-newproj-input') { sbNewProj = false; const v2 = v.trim(); if (v2) { const p = await api.sidebar.addProject(v2); if (p) { sbState.open[p.id] = true; sbSave(); } } else renderSidebar(); } else await commitEdit(v); }
+  if (e.key === 'Escape') { sbEdit = null; sbNewProj = false; renderSidebar(); }
+});
+$('#sidebar').addEventListener('focusout', e => { if (e.target.classList && e.target.classList.contains('sb-edit') && !e.isComposing) { setTimeout(() => { if (sbEdit || sbNewProj) { if (document.activeElement && document.activeElement.classList.contains('sb-edit')) return; sbEdit = null; sbNewProj = false; renderSidebar(); } }, 120); } });
+$('#sb-new').onclick = () => newChat(null);
+$('#sb-newproj').onclick = () => { sbNewProj = true; renderSidebar(); };
+$('#sb-search').addEventListener('input', renderSidebar);
+$('#sb-toggle').onclick = () => { sbState.hidden = !sbState.hidden; sbSave(); renderSidebar(); requestAnimationFrame(pushBounds); };
+api.sidebar.onChanged(refreshSidebar);
+refreshSidebar();
