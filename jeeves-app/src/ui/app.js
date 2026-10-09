@@ -914,10 +914,12 @@ $('#sb-custom').onclick = async () => {
   $('#cu-msg').textContent = ''; openModal('#custom-modal');
 };
 $('#custom-close').onclick = () => closeModal('#custom-modal');
-$('#cu-save').onclick = async () => {
+async function saveCustom() {
   cfg = await api.config.update({ custom: { enabled: $('#cu-enabled').checked, nickname: $('#cu-nick').value, about: $('#cu-about').value, instructions: $('#cu-inst').value, grade: $('#cu-grade').value } });
   $('#cu-msg').textContent = '저장했습니다. 다음 대화부터 반영됩니다.';
-};
+}
+$('#cu-save').onclick = saveCustom;
+$('#cu-save-close').onclick = async () => { await saveCustom(); closeModal('#custom-modal'); };
 let skEditing = null;   // 고치는 중인 스킬 이름(새로 만들 때는 '')
 function skView(edit) { $('#sk-view-list').classList.toggle('hidden', edit); $('#sk-view-edit').classList.toggle('hidden', !edit); }
 async function renderSkills() {
@@ -950,12 +952,15 @@ $('#sk-ai-go').onclick = async () => {
   const d = r.draft; $('#sk-name').value = d.name; $('#sk-desc').value = d.description; $('#sk-hint').value = d.hint; $('#sk-body').value = d.body;
   m.textContent = `✅ 초안을 채웠습니다(${r.model}). 내용을 읽고 고친 뒤 저장하세요.`;
 };
-$('#sk-save').onclick = async () => {
+async function saveSkill() {
   const r = await api.skills.save({ name: $('#sk-name').value, description: $('#sk-desc').value, hint: $('#sk-hint').value, body: $('#sk-body').value, oldName: skEditing });
-  if (!r.ok) { $('#sk-edit-msg').textContent = '❌ ' + r.error; return; }
+  if (!r.ok) { $('#sk-edit-msg').textContent = '❌ ' + r.error; return false; }
   if (activeSkill && skEditing && activeSkill === skEditing && r.name !== skEditing) setActiveSkill(null);
   skView(false); $('#sk-msg').textContent = `저장했습니다: /${r.name}`; await renderSkills(); await refreshSkillMenu();
-};
+  return true;
+}
+$('#sk-save').onclick = saveSkill;
+$('#sk-save-close').onclick = async () => { if (await saveSkill()) closeModal('#skills-modal'); };
 $('#sk-list').addEventListener('click', async e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const name = b.closest('.sk-item').dataset.sk;
