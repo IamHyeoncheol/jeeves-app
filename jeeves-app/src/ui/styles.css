@@ -294,13 +294,7 @@ body.layout-web #sidebar, #sidebar.collapsed { display: none; }
 .hist.hl { outline: 2px solid var(--accent); background: var(--accent-soft); }
 .brand .icon { width: 28px; height: 28px; margin-right: 4px; }
 
-/* 왼쪽 목록 그룹 구분: 제목에만 옅은 배경 + 그룹별 색(프로젝트 황토 · 대화 초록 · 작업 파랑) */
-.sec-proj { --cat: #b7791f; }
-.sec-chat { --cat: var(--accent); }
-.sec-work { --cat: #3b6fb6; }
-.sb-h { padding: 2px 0 4px; }
-.sb-tt { display: inline-block; padding: 2px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; color: var(--ink); background: color-mix(in srgb, var(--cat) 16%, transparent); border-left: 3px solid var(--cat); }
-.sec-proj .sb-item .t, .sec-chat .sb-item .t, .sec-work .sb-item .t { padding-left: 2px; }
-.sec-proj .sb-item.on, .sec-proj .sb-item.hl-proj { background: color-mix(in srgb, var(--cat) 14%, transparent); }
-.sec-work .sb-item:hover { background: color-mix(in srgb, var(--cat) 10%, transparent); }
-.sec-chat .sb-item.on { background: color-mix(in srgb, var(--cat) 16%, transparent); }
+/* 왼쪽 목록 아이콘: 단색(글자색을 따라감) */
+.ico { width: 14px; height: 14px; flex: none; vertical-align: -2px; margin-right: 5px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; color: var(--ink-2); }
+.sb-h .ico { color: var(--muted); }
+.sb-item .st .ico { margin: 0; }
