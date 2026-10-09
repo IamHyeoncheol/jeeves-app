@@ -33,6 +33,11 @@ const Q = '1인 기업 사업 모델을 추천해줘';
     assert.strictEqual(extractAnswer('아직 아무 글 없음', Q), '');
   });
 
+  await t('답변 자르기: 따옴표·마크다운 모양이 바뀌어도 질문을 찾음', () => {
+    const page = '메뉴\n\n짧게 답하세요.\n\n연결 테스트입니다. “OK”라고만 답하세요.\n\nOK';
+    assert.strictEqual(extractAnswer(page, '짧게 답하세요.\n\n연결 테스트입니다. "OK"라고만 답하세요.'), 'OK');
+  });
+
   await t('대화: 답이 스트리밍되다 멈추면(안정) 최종 답을 돌려줌', async () => {
     const wc = fakeWc({ steps: [{ text: s => `You\n${s}\n` }, { text: s => `You\n${s}\nA` , busy: true }, { text: s => `You\n${s}\nA B` , busy: true }, { text: s => `You\n${s}\nA B C` }, { text: s => `You\n${s}\nA B C` }, { text: s => `You\n${s}\nA B C` }, { text: s => `You\n${s}\nA B C` }, { text: s => `You\n${s}\nA B C` }] });
     const r = await askWebChat(wc, Q, { sleep });

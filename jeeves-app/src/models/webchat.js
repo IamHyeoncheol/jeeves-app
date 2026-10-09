@@ -28,14 +28,17 @@ function buildPrompt(req) {
 }
 
 // 화면 글 전체에서 "내 질문 뒤에 생긴 글"만 잘라 낸다. 공백·줄바꿈이 사이트에서 달라질 수 있어 질문 끝 60자를 공백 무시로 찾는다.
+// 따옴표·마크다운 기호·공백이 사이트에서 바뀌어 보일 수 있으므로, 글자·숫자·한글만 남긴 모양으로 비교한 뒤 원래 위치로 되돌린다.
 function extractAnswer(regionText, question) {
-  const words = String(question).trim().slice(-60).split(/\s+/).filter(Boolean);
-  if (!words.length) return '';
-  const re = new RegExp(words.map(esc).join('\\s+'), 'g');
-  let m, end = -1;
-  while ((m = re.exec(regionText))) end = m.index + m[0].length;
-  if (end < 0) return '';
-  return String(regionText).slice(end).trim();
+  const keep = /[\p{L}\p{N}]/u;
+  const src = String(regionText), idx = [];
+  let flat = '';
+  for (let i = 0; i < src.length; i++) { if (keep.test(src[i])) { flat += src[i].toLowerCase(); idx.push(i); } }
+  const q = [...String(question)].filter(c => keep.test(c)).join('').toLowerCase().slice(-40);
+  if (q.length < 4) return '';
+  const at = flat.lastIndexOf(q);
+  if (at < 0) return '';
+  return src.slice(idx[at + q.length - 1] + 1).replace(/^[\s"'”“’‘)\]*_`]+/, '').trim();
 }
 
 const prepareScript = sel => `/*JV:prepare*/(() => {
@@ -69,7 +72,8 @@ const sendScript = sel => `/*JV:send*/(() => {
 const pollScript = `/*JV:poll*/(() => {
   const r = window.__jvRegion || document.body;
   const busy = [...document.querySelectorAll('button,[role=button]')].some(x => /(stop|중지|생성\\s*중|멈춤)/i.test((x.getAttribute('aria-label') || '') + ' ' + (x.textContent || '')) && x.getBoundingClientRect().width > 0);
-  return { text: r.innerText || '', busy, url: location.href };
+  const iv = window.__jvIn; const left = iv ? ((iv.value != null && iv.value !== undefined ? iv.value : iv.innerText) || '').length : -1;
+  return { text: r.innerText || '', busy, url: location.href, left };
 })()`;
 
 // wc: Electron webContents(또는 같은 모양의 가짜). opts: { selectors, timeoutMs, stableMs, pollMs, sleep }
@@ -91,16 +95,17 @@ async function askWebChat(wc, text, opts = {}) {
     // 보내기 버튼을 못 찾으면 실제 Enter 키를 보낸다
     try { wc.focus && wc.focus(); wc.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' }); wc.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' }); } catch (_) {}
   }
-  let last = '', same = 0;
+  let last = '', same = 0, lastS = null;
   for (let i = 0; i < maxPolls; i++) {
     await sleep(poll);
-    const s = await run(pollScript);
+    const s = await run(pollScript); lastS = s;
     const ans = extractAnswer(s.text, text);
     if (ans && ans === last && !s.busy) { if (++same >= stableNeed) return ans; }
     else { same = 0; last = ans; }
   }
   if (last) return last;   // 시간이 다 됐어도 받은 부분이 있으면 돌려준다
-  throw Object.assign(new ProviderError('답변이 시간 안에 오지 않았습니다(질문이 보내졌는지 화면을 확인하세요).', { retryable: false }), { kind: 'server' });
+  const found = lastS ? (extractAnswer(lastS.text, text) !== '' || lastS.text.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase().includes([...text].filter(c => /[\p{L}\p{N}]/u.test(c)).join('').toLowerCase().slice(-40))) : false;
+  throw Object.assign(new ProviderError(`답변이 시간 안에 오지 않았습니다. 진단: 보내기 방식 ${how}, 화면에서 내 질문 글 ${found ? '찾음(답변 글이 아직 없음)' : '못 찾음(질문이 안 보내졌거나 다른 영역에 표시)'}, 입력칸에 남은 글자 ${lastS ? lastS.left : '?'}자, 화면 글자 수 ${lastS ? lastS.text.length : '?'}.`, { retryable: false }), { kind: 'server' });
 }
 
 // providers.js 의 ADAPTERS 에 등록되는 함수: 다른 공급자와 같은 모양으로 답을 돌려준다.
