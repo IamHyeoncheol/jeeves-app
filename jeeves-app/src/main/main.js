@@ -419,7 +419,7 @@ ipcMain.handle('agent:start', async (_, { goal, where, infoGrade, projectId, att
   // 비용 원칙: API 방식인데 쓸 수 있는 API·무료 공급자가 없으면, 설치된 구독(Claude Code)이 있을 때 구독 엔진으로 자동 전환한다(구독 → 크레딧 충전은 마지막)
   if (engine === 'api' && !router.available('agent', grade)) {
     if (all.failover !== false && mcp && !ccRunning && engineGradeOk(all, grade) && await findClaude(all.engine.claudePath)) { engine = 'claude-code'; send('router:notice', '쓸 수 있는 API 공급자가 없어 구독(Claude Code)으로 진행합니다'); }
-    else return { error: `지금 이 작업(정보 등급 ${grade})을 맡길 수 있는 공급자가 없습니다. 해결: 설정 → 5. 구독 연결에서 작업 엔진을 "구독: Claude Code"로 바꾸거나(내 구독 사용), 공개해도 되는 일이면 시작 등급을 P로 낮춰 무료 모델을 쓰거나, API 키를 추가하세요. 참고: 작업(Work)은 웹 브라우저 조작용입니다. 앱·프로그램 개발은 개발(Dev) 모드를 쓰세요.` };
+    else return { error: `지금 이 작업(정보 등급 ${grade})을 맡길 수 있는 공급자가 없습니다. 해결: 설정 → 5-1. 구독 연결에서 작업 엔진을 "구독: Claude Code"로 바꾸거나(내 구독 사용), 공개해도 되는 일이면 시작 등급을 P로 낮춰 무료 모델을 쓰거나, API 키를 추가하세요. 참고: 작업(Work)은 웹 브라우저 조작용입니다. 앱·프로그램 개발은 개발(Dev) 모드를 쓰세요.` };
   }
   // 구독 엔진도 같은 등급 검문소를 거친다: 허용 등급(기본 I)보다 높으면 시작하지 않는다(S 는 항상 차단)
   if (engine === 'claude-code' && !engineGradeOk(all, grade)) {
