@@ -4,7 +4,7 @@ const { ModelRouter } = require('../src/models/router');
 const { toOpenAIMessages } = require('../src/models/providers');
 const { DEFAULTS, ConfigStore, parseKeyFile } = require('../src/main/config');
 const { costUsd } = require('../src/models/pricing');
-const { recommendFor, recommendAll, recommendEngine, effectiveMaxGrade, gradeOk, engineGradeOk, engineMaxGrade, suspectGrade } = require('../src/models/recommend');
+const { recommendFor, recommendAll, recommendEngine, effectiveMaxGrade, gradeOk, engineGradeOk, engineMaxGrade, suspectGrade, suspectDetail } = require('../src/models/recommend');
 const fs = require('fs'), os = require('os'), path = require('path');
 const { formatObservation, TOOLS } = require('../src/agent/agent');
 
@@ -525,6 +525,14 @@ function fakeFetch(handler) {
     await router.call('chat', { system: 's', messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], maxTokens: 10, infoGrade: 'P' });
     await assert.rejects(() => router.call('chat', { system: 's', messages: [{ role: 'user', content: [{ type: 'text', text: 'x' }] }], maxTokens: 10, infoGrade: 'C' }), /정보 등급 C/);
     assert.strictEqual(f.calls.length, 1);                          // 막힌 호출은 외부로 나가지 않음
+  });
+
+  await t('경고 근거: 걸린 단어를 알려 주고 키·번호 형태의 값은 가려서 보여 줌', () => {
+    const d = suspectDetail('이 계약서 단가와 비밀번호, sk-abcdefghijklmnopqrstuvwx 검토');
+    assert.strictEqual(d.grade, 'S');
+    assert.ok(d.hits.includes('계약서') && d.hits.includes('단가') && d.hits.includes('비밀번호'));
+    assert.ok(!d.hits.some(h => h.startsWith('sk-')));
+    assert.deepStrictEqual(suspectDetail('오늘 날씨'), { grade: null, hits: [] });
   });
 
   let fail = 0;
