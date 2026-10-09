@@ -403,7 +403,7 @@ function renderProviders() {
       : `<input data-k="apiKey" type="password" autocomplete="off" placeholder="${p.disabled ? '고도화 단계에서 연결' : 'API 키 붙여넣기'}" value="${esc(p.apiKey)}" ${p.disabled ? 'disabled' : ''}>`;
     return `
     <div class="prov ${p.disabled ? 'disabled' : ''}" data-id="${esc(id)}">
-      <div class="nm">${esc(p.label)}${tierBadge}${keyBadge}${p.disabled ? '' : `<label class="offline" title="체크하면 '추천'이 이 공급자를 고르지 않습니다. 크레딧(잔액)이 없는 유료 공급자에 쓰세요. 직접 고른 부문에는 영향 없음."><input type="checkbox" data-k="off" ${p.off ? 'checked' : ''}> 추천에서 제외</label>`}</div>
+      <div class="nm">${esc(p.label)}${p.disabled ? '' : `<label class="offline" title="체크하면 '추천'이 이 공급자를 고르지 않습니다. 크레딧(잔액)이 없는 유료 공급자에 쓰세요. 직접 고른 부문에는 영향 없음."><input type="checkbox" data-k="off" ${p.off ? 'checked' : ''}> 추천에서 제외</label>`}</div>
       ${keyInput}
       <input data-k="baseUrl" placeholder="주소" value="${esc(p.baseUrl)}" title="접속 주소(보통 바꿀 필요 없음)" ${p.disabled ? 'disabled' : ''}>
       <select data-k="tier" title="요금 유형: 무료는 비용 0원으로 계산·추천에서 우선, 유료는 단가표로 계산"><option value="free" ${tier === 'free' ? 'selected' : ''}>무료</option><option value="paid" ${tier === 'paid' ? 'selected' : ''}>유료</option></select>
