@@ -29,7 +29,7 @@ contextBridge.exposeInMainWorld('jeeves', {
     routerStatus: () => ipcRenderer.invoke('router:status'),
     onNotice: fn => on('router:notice', fn)
   },
-  skills: { list: () => ipcRenderer.invoke('skills:list'), import: kind => ipcRenderer.invoke('skills:import', kind), remove: name => ipcRenderer.invoke('skills:remove', name), enable: (name, enabled) => ipcRenderer.invoke('skills:enable', { name, enabled }) },
+  skills: { list: () => ipcRenderer.invoke('skills:list'), get: name => ipcRenderer.invoke('skills:get', name), save: spec => ipcRenderer.invoke('skills:save', spec), draft: (request, infoGrade) => ipcRenderer.invoke('skills:draft', { request, infoGrade }), import: kind => ipcRenderer.invoke('skills:import', kind), remove: name => ipcRenderer.invoke('skills:remove', name), enable: (name, enabled) => ipcRenderer.invoke('skills:enable', { name, enabled }) },
   idea: { check: text => ipcRenderer.invoke('idea:check', text) },
   chat: {
     send: (text, opts) => ipcRenderer.invoke('chat:send', { text, ...opts }),

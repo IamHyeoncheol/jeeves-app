@@ -14,7 +14,7 @@ const { checkFolder, findBinary, snapshotDir } = require('./dev-engine');
 const { runChain } = require('./dev-chain');
 const { detectLocalModels, buildJuniorEngines } = require('../dev/local-ai');
 const { runTeam } = require('./dev-team');
-const { customApplies, customPrompt, hasCustomText, SkillStore, matchSkill, skillPrompt } = require('./customize');
+const { customApplies, customPrompt, hasCustomText, SkillStore, matchSkill, skillPrompt, DRAFT_SYSTEM, parseDraft } = require('./customize');
 let _skills = null;
 const getSkills = () => _skills || (_skills = new SkillStore(path.join(app.getPath('userData'), 'skills')));
 const { ideaCheck, frame: ideaFrame, withBanner: ideaBanner, structure: ideaStructure } = require('./idea');
@@ -191,6 +191,17 @@ function sanitizeAtts(attachments) {
 ipcMain.handle('grade:suspect', (_, text) => suspectDetail(text));
 // ── 스킬(Claude SKILL.md 가져오기) ──
 ipcMain.handle('skills:list', () => getSkills().list());
+ipcMain.handle('skills:get', (_, name) => getSkills().get(name));
+ipcMain.handle('skills:save', (_, spec) => { try { return { ok: true, ...getSkills().save(spec || {}) }; } catch (e) { return { ok: false, error: e.message }; } });
+// AI 에게 초안 맡기기: 사용자가 쓴 설명을 현재 대화 등급으로 대화 부문 AI 에 보내 초안을 받는다(저장은 사용자가 확인한 뒤에만)
+ipcMain.handle('skills:draft', async (_, { request, infoGrade }) => {
+  const q = String(request || '').trim();
+  if (q.length < 5) return { ok: false, error: '어떤 일을 시키는 스킬인지 한두 문장으로 적어 주세요.' };
+  try {
+    const res = await router.call('chat', { system: DRAFT_SYSTEM, messages: [{ role: 'user', content: [{ type: 'text', text: `만들고 싶은 스킬 설명:\n${q.slice(0, 2000)}` }] }], maxTokens: 3000, infoGrade: pickGrade(infoGrade) });
+    return { ok: true, draft: parseDraft(res.content.filter(b => b.type === 'text').map(b => b.text).join('\n')), model: res.model };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
 ipcMain.handle('skills:enable', (_, { name, enabled }) => getSkills().setEnabled(name, !!enabled));
 ipcMain.handle('skills:remove', (_, name) => getSkills().remove(name));
 async function importSkills(kind) {

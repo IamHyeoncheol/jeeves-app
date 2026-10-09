@@ -381,3 +381,10 @@ body.panel-narrow.layout-web #panel > * { display: none; }
 .sk-item .ds { grid-column: 1; font-size: 12px; color: var(--ink-2); }
 .sk-item .ac { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 4px; align-items: center; }
 .sk-item.off { opacity: .55; }
+
+.cu-ai { padding: 8px 10px; margin-top: 8px; background: var(--surface); border: 1px dashed var(--line); border-radius: 8px; font-size: 13px; }
+.cu-aiin { display: flex; gap: 6px; margin-top: 6px; }
+.cu-aiin input { flex: 1; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: var(--bg); color: var(--ink); font: inherit; outline: none; }
+#skill-chip { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); color: var(--accent); border-radius: 12px; padding: 2px 4px 2px 10px; font-size: 12.5px; }
+#skill-chip button { border: 0; background: none; cursor: pointer; color: inherit; font-size: 13px; }
+#skill-chip.hidden { display: none; }

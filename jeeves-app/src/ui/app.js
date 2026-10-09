@@ -219,6 +219,7 @@ $$('#panel-tabs button').forEach(b => b.onclick = () => {
   if (b.dataset.view === 'history') renderHistory();
 });
 
+let activeSkill = null, skillHints = {};   // 입력창 옆 🧩 스킬에서 고른 스킬
 // 대화 글자 크기: 화면 배율(80%~200%, 10% 단계)을 기억해 두고 대화 영역에만 적용한다
 const FS_MIN = 80, FS_MAX = 200, FS_STEP = 10;
 let chatZoom = (() => { try { const v = parseInt(localStorage.getItem('jv-chat-zoom'), 10); return v >= FS_MIN && v <= FS_MAX ? v : 100; } catch (_) { return 100; } })();
@@ -241,7 +242,7 @@ function setMode(m) {
   document.body.classList.toggle('mode-dev', m === 'dev');
   document.body.classList.toggle('mode-idea', m === 'idea');
   $$('#mode button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-  $('#input').placeholder = m === 'idea' ? '💡 공개해도 되는 주제만 짧게 적어 주세요. 회사 이름·금액·고객 정보는 쓰지 마세요. 예) 수산물 건조 과정을 빠르게 하는 다른 분야의 원리' : m === 'dev' ? '개발할 내용을 구체적으로 적어 주세요. 예) 하루 일정을 시간 블록으로 짜는 플래너 앱을 만들어줘 (화면 시안 사진 첨부 가능)' : m === 'ask' ? '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)' : '시킬 일을 구체적으로 적어 주세요. 예) 네이버에서 가양역 근처 회의실 대여 3곳 찾아서 가격 비교';
+  $('#input').placeholder = m === 'idea' ? '💡 공개해도 되는 주제만 짧게 적어 주세요. 회사 이름·금액·고객 정보는 쓰지 마세요. 예) 수산물 건조 과정을 빠르게 하는 다른 분야의 원리' : m === 'dev' ? '개발할 내용을 구체적으로 적어 주세요. 예) 하루 일정을 시간 블록으로 짜는 플래너 앱을 만들어줘 (화면 시안 사진 첨부 가능)' : m === 'ask' ? (activeSkill && skillHints[activeSkill] ? skillHints[activeSkill] : '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)') : '시킬 일을 구체적으로 적어 주세요. 예) 네이버에서 가양역 근처 회의실 대여 3곳 찾아서 가격 비교';
 }
 $$('#mode button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
 setMode('ask');
@@ -541,14 +542,15 @@ async function sendMessage(textOverride, opts = {}) {
     return;
   }
   const usePage = opts.includePage !== undefined ? !!opts.includePage : $('#include-page').checked;
-  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : (usePage ? '💬 대화 · 페이지 포함' : '💬 대화')) + ` · 🔒${chatGrade}`, { kind: isSummary ? 'sum' : 'chat', page: usePage, attachments: atts });
+  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : (usePage ? '💬 대화 · 페이지 포함' : '💬 대화')) + (activeSkill && !isSummary ? ` · 🧩/${activeSkill}` : '') + ` · 🔒${chatGrade}`, { kind: isSummary ? 'sum' : 'chat', page: usePage, attachments: atts });
   if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
   const wait = document.createElement('div');
   wait.className = 'msg ai typing';
   box.appendChild(wait); scrollDown();
   $('#send').disabled = true;
   const chatOpts = { includePage: usePage, mode: isSummary ? 'summarize' : 'chat', infoGrade: chatGrade, gradeAck, attachments: atts, convId: curConvId, projectId: curConvId ? null : (pendingProject || activeProject) };
-  let res = await api.chat.send(text, chatOpts);
+  const apiText = (!isSummary && activeSkill && !/^\s*\//.test(text)) ? `/${activeSkill} ${text}` : text;   // 고른 스킬은 /이름 으로 붙여 보냄
+  let res = await api.chat.send(apiText, chatOpts);
   if (res.needLive) {
     // 실시간 정보 질문: 질문 모드는 인터넷을 못 보므로 작업 모드(검색 가능)로 보낼지 묻는다
     const ch = await askLive();
@@ -566,7 +568,7 @@ async function sendMessage(textOverride, opts = {}) {
     addUser(text, '💬 대화 · 🔒' + chatGrade, { kind: 'chat', page: false, attachments: atts });
     const w2 = document.createElement('div'); w2.className = 'msg ai typing'; box.appendChild(w2); scrollDown();
     $('#send').disabled = true;
-    const r2 = await api.chat.send(text, { ...chatOpts, liveAck: true });
+    const r2 = await api.chat.send(apiText, { ...chatOpts, liveAck: true });
     w2.remove(); $('#send').disabled = false;
     if (r2.ok && r2.convId) { curConvId = r2.convId; pendingProject = null; }
     if (r2.ok) addAI(r2.text, r2.meta || r2.model, true); else addErr(r2.error || '답변을 받지 못했습니다.');
@@ -578,7 +580,7 @@ async function sendMessage(textOverride, opts = {}) {
     if (ch === 'cancel') { wait.remove(); $('#send').disabled = false; addErr((res.source === 'attachment' ? '첨부한 글' : '페이지') + '에 기밀로 보이는 내용이 있어 보내지 않았습니다. 다시 보내려면 보내기를 눌러 주세요.'); return; }
     if (ch === 'raise') setChatGrade(res.suggest);
     chatOpts.infoGrade = chatGrade; chatOpts.gradeAck = true;
-    res = await api.chat.send(text, chatOpts);
+    res = await api.chat.send(apiText, chatOpts);
   }
   if (res.needConfirmLower) {
     // 등급을 낮추면 지금까지의 높은 등급 대화가 낮은 등급 서비스로 넘어갈 수 있다 → 확인 후 대화를 비우고 새로 시작
@@ -587,7 +589,7 @@ async function sendMessage(textOverride, opts = {}) {
       const keep = [...box.querySelectorAll('.msg.user')].pop();
       box.innerHTML = ''; if (keep) box.appendChild(keep); box.appendChild(wait);
       curConvId = null; chatOpts.convId = null;
-      res = await api.chat.send(text, { ...chatOpts, lowerOk: true });
+      res = await api.chat.send(apiText, { ...chatOpts, lowerOk: true });
       if (res.ok) addAI(`(정보 등급을 ${chatOpts.infoGrade}로 낮춰 새 대화로 시작했습니다. 이전 대화는 왼쪽 목록에 그대로 있습니다.)`);
     } else { setChatGrade(res.from); res = { ok: false, error: `등급을 ${res.from}(${GRADE_TXT[res.from]}) 그대로 두어 보내지 않았습니다. 다시 보내려면 보내기를 눌러 주세요.` }; }
   }
@@ -916,11 +918,13 @@ $('#cu-save').onclick = async () => {
   cfg = await api.config.update({ custom: { enabled: $('#cu-enabled').checked, nickname: $('#cu-nick').value, about: $('#cu-about').value, instructions: $('#cu-inst').value, grade: $('#cu-grade').value } });
   $('#cu-msg').textContent = '저장했습니다. 다음 대화부터 반영됩니다.';
 };
+let skEditing = null;   // 고치는 중인 스킬 이름(새로 만들 때는 '')
+function skView(edit) { $('#sk-view-list').classList.toggle('hidden', edit); $('#sk-view-edit').classList.toggle('hidden', !edit); }
 async function renderSkills() {
   const list = await api.skills.list();
-  $('#sk-list').innerHTML = list.length ? list.map(s => `<div class="sk-item ${s.enabled ? '' : 'off'}" data-sk="${esc(s.name)}"><div class="nm">/${esc(s.name)}</div><div class="ds">${esc(s.description || '(설명 없음)')} · 본문 ${s.size.toLocaleString()}자</div><div class="ac"><button class="ghost small" data-act="use" title="입력창에 넣기">사용</button><button class="ghost small" data-act="toggle">${s.enabled ? '끄기' : '켜기'}</button><button class="ghost small" data-act="del">삭제</button></div></div>`).join('') : '<div class="sb-empty">가져온 스킬이 없습니다. 위 단추로 SKILL.md 를 가져오세요.</div>';
+  $('#sk-list').innerHTML = list.length ? list.map(s => `<div class="sk-item ${s.enabled ? '' : 'off'}" data-sk="${esc(s.name)}"><div class="nm">/${esc(s.name)}</div><div class="ds">${esc(s.description || '(설명 없음)')} · 지침 ${s.size.toLocaleString()}자</div><div class="ac"><button class="ghost small" data-act="use" title="입력창에 적용">사용</button><button class="ghost small" data-act="edit">수정</button><button class="ghost small" data-act="toggle">${s.enabled ? '끄기' : '켜기'}</button><button class="ghost small" data-act="del" title="보관 폴더로 옮깁니다">삭제</button></div></div>`).join('') : '<div class="sb-empty">아직 스킬이 없습니다. “새 스킬 만들기”로 첫 스킬을 만들어 보세요.</div>';
 }
-$('#sb-skills').onclick = async () => { $('#sk-msg').textContent = ''; await renderSkills(); openModal('#skills-modal'); };
+$('#sb-skills').onclick = async () => { $('#sk-msg').textContent = ''; skView(false); await renderSkills(); openModal('#skills-modal'); };
 $('#skills-close').onclick = () => closeModal('#skills-modal');
 for (const id of ['#custom-modal', '#skills-modal']) $(id).addEventListener('click', e => { if (e.target.id === id.slice(1)) closeModal(id); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') for (const id of ['#custom-modal', '#skills-modal']) if (!$(id).classList.contains('hidden')) closeModal(id); });
@@ -928,16 +932,65 @@ for (const [id, kind] of [['#sk-import-file', 'file'], ['#sk-import-dir', 'dir']
   const r = await api.skills.import(kind);
   if (r.canceled) return;
   $('#sk-msg').textContent = (r.added.length ? `가져옴: ${r.added.map(n => '/' + n).join(', ')}. ` : '') + (r.errors.length ? '문제: ' + r.errors.join(' / ') : '');
-  await renderSkills();
+  await renderSkills(); await refreshSkillMenu();
+};
+function openSkillEditor(s) {
+  skEditing = s ? s.name : '';
+  $('#sk-name').value = s ? s.name : ''; $('#sk-desc').value = s ? s.description || '' : ''; $('#sk-hint').value = s ? s.hint || '' : ''; $('#sk-body').value = s ? s.body || '' : '';
+  $('#sk-ai-req').value = ''; $('#sk-ai-msg').textContent = ''; $('#sk-edit-msg').textContent = '';
+  $('.cu-ai').classList.toggle('hidden', !!s); skView(true); $('#sk-name').focus();
+}
+$('#sk-new').onclick = () => openSkillEditor(null);
+$('#sk-cancel').onclick = () => skView(false);
+$('#sk-ai-go').onclick = async () => {
+  const req = $('#sk-ai-req').value.trim(); const m = $('#sk-ai-msg');
+  m.textContent = 'AI가 초안을 만드는 중… (지금 대화 등급 ' + chatGrade + ' 기준으로 보냅니다)'; $('#sk-ai-go').disabled = true;
+  const r = await api.skills.draft(req, chatGrade); $('#sk-ai-go').disabled = false;
+  if (!r.ok) { m.textContent = '❌ ' + r.error; return; }
+  const d = r.draft; $('#sk-name').value = d.name; $('#sk-desc').value = d.description; $('#sk-hint').value = d.hint; $('#sk-body').value = d.body;
+  m.textContent = `✅ 초안을 채웠습니다(${r.model}). 내용을 읽고 고친 뒤 저장하세요.`;
+};
+$('#sk-save').onclick = async () => {
+  const r = await api.skills.save({ name: $('#sk-name').value, description: $('#sk-desc').value, hint: $('#sk-hint').value, body: $('#sk-body').value, oldName: skEditing });
+  if (!r.ok) { $('#sk-edit-msg').textContent = '❌ ' + r.error; return; }
+  if (activeSkill && skEditing && activeSkill === skEditing && r.name !== skEditing) setActiveSkill(null);
+  skView(false); $('#sk-msg').textContent = `저장했습니다: /${r.name}`; await renderSkills(); await refreshSkillMenu();
 };
 $('#sk-list').addEventListener('click', async e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
   const name = b.closest('.sk-item').dataset.sk;
-  if (b.dataset.act === 'use') { closeModal('#skills-modal'); setMode('ask'); $('#input').value = `/${name} `; $('#input').focus(); return; }
+  if (b.dataset.act === 'use') { const s = (await api.skills.list()).find(x => x.name === name); closeModal('#skills-modal'); setMode('ask'); setActiveSkill(name, s && s.hint); return; }
+  if (b.dataset.act === 'edit') { const s = await api.skills.get(name); if (s) openSkillEditor(s); return; }
   if (b.dataset.act === 'toggle') await api.skills.enable(name, b.closest('.sk-item').classList.contains('off'));
-  if (b.dataset.act === 'del') await api.skills.remove(name);
-  await renderSkills();
+  if (b.dataset.act === 'del') { await api.skills.remove(name); if (activeSkill === name) setActiveSkill(null); }
+  await renderSkills(); await refreshSkillMenu();
 });
+
+// 입력창 옆 🧩 스킬: 고르면 칩이 생기고, 보낼 때 /이름 이 앞에 붙는다(💬 대화 모드)
+const baseAskPlaceholder = () => '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)';
+function setActiveSkill(name, hint) {
+  activeSkill = name || null;
+  const chip = $('#skill-chip');
+  chip.classList.toggle('hidden', !activeSkill);
+  chip.innerHTML = activeSkill ? `🧩 /${esc(activeSkill)} <button type="button" title="스킬 해제">✕</button>` : '';
+  if (hint !== undefined && activeSkill) skillHints[activeSkill] = hint || '';
+  if (mode === 'ask') $('#input').placeholder = activeSkill && skillHints[activeSkill] ? skillHints[activeSkill] : baseAskPlaceholder();
+  if (activeSkill) $('#input').focus();
+}
+$('#skill-chip').addEventListener('click', e => { if (e.target.closest('button')) setActiveSkill(null); });
+async function refreshSkillMenu() { try { for (const s of await api.skills.list()) skillHints[s.name] = s.hint || ''; } catch (_) {} }
+$('#skill-pick').onclick = async e => {
+  closeSbMenu();
+  const list = (await api.skills.list()).filter(s => s.enabled);
+  const m = document.createElement('div'); m.className = 'sb-menu';
+  const add = (label, fn, cls) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = () => { closeSbMenu(); fn(); }; m.appendChild(b); };
+  if (!list.length) { const l = document.createElement('div'); l.className = 'lbl'; l.textContent = '(만든 스킬이 없습니다)'; m.appendChild(l); }
+  list.forEach(s => add('🧩 /' + s.name + (s.description ? ' — ' + s.description.slice(0, 24) : ''), () => { setMode('ask'); setActiveSkill(s.name, s.hint); }));
+  add('＋ 스킬 만들기·관리', () => $('#sb-skills').click());
+  document.body.appendChild(m);
+  const r = e.currentTarget.getBoundingClientRect(); m.style.left = Math.max(8, r.left) + 'px'; m.style.top = Math.max(8, r.top - m.offsetHeight - 6) + 'px';
+};
+refreshSkillMenu();
 async function openSettings(msg) {
   cfg = await api.config.get();
   settingsOpen = true;

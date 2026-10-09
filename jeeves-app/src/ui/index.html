@@ -93,6 +93,7 @@
           <div id="composer-opts">
             <button id="attach-btn" class="ghost" type="button" title="파일 또는 사진 추가 (Ctrl+U)">＋ 파일·사진</button>
             <input type="file" id="file-input" multiple class="hidden" accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.csv,.tsv,.json,.xml,.html,.htm,.css,.js,.ts,.py,.java,.c,.cpp,.cs,.go,.rs,.sql,.log,.yml,.yaml,.ini,.toml,.bat,.ps1,.sh,.rtf">
+            <button id="skill-pick" class="ghost ask-only" type="button" title="스킬을 골라 이 질문에 적용합니다">🧩 스킬</button><span id="skill-chip" class="opt ask-only hidden"></span>
             <label class="opt ask-only"><input type="checkbox" id="include-page"> 현재 페이지 내용 포함</label>
             <label class="opt act-only"><select id="where"><option value="background">새 백그라운드 탭에서</option><option value="current">지금 보는 탭에서</option></select></label>
             <span class="opt dev-only"><button id="dev-folder" class="ghost" type="button" title="개발할 프로젝트 폴더 선택">📁 폴더 선택</button><button id="dev-folder-change" class="link hidden" type="button" title="다른 폴더로 바꾸기">변경</button></span>
@@ -253,10 +254,21 @@
     <div class="sheet narrow">
       <div class="sheet-head"><h2>스킬</h2><button class="icon" id="skills-close">✕</button></div>
       <div class="sheet-body">
-        <p class="muted">Claude 스킬 파일(SKILL.md)을 그대로 가져와, 💬 대화 입력창에 <b>/스킬이름 할 일</b>을 쓰면 그 지침으로 답합니다. 정보 등급은 지금 대화 등급을 따릅니다. (스킬 폴더 안의 참고 파일·스크립트는 아직 읽지 않고 SKILL.md 본문만 씁니다.)</p>
-        <div class="cu-btns"><button type="button" class="ghost" id="sk-import-file">＋ SKILL.md 파일 가져오기</button><button type="button" class="ghost" id="sk-import-dir">＋ 스킬 폴더 가져오기</button></div>
-        <div id="sk-msg" class="muted small"></div>
-        <div id="sk-list"></div>
+        <div id="sk-view-list">
+          <p class="muted">자주 시키는 일을 <b>이름 붙인 작업 지침</b>으로 저장해 두고, 입력창 옆 <b>🧩 스킬</b>에서 고르거나 <b>/이름</b>으로 불러 쓰는 기능입니다. 정보 등급은 지금 대화 등급을 따릅니다.</p>
+          <div class="cu-btns"><button type="button" class="primary" id="sk-new">＋ 새 스킬 만들기</button><button type="button" class="ghost" id="sk-import-file" title="Claude 스킬 파일(SKILL.md)도 가져올 수 있습니다">파일 가져오기</button><button type="button" class="ghost" id="sk-import-dir">폴더 가져오기</button></div>
+          <div id="sk-msg" class="muted small"></div>
+          <div id="sk-list"></div>
+        </div>
+        <div id="sk-view-edit" class="hidden">
+          <div class="cu-ai"><b>AI에게 초안 맡기기</b> <small class="muted">(선택) 어떤 일을 시키고 싶은지 말로 적으면 지침 초안을 만들어 줍니다. 고쳐서 저장하세요.</small>
+            <div class="cu-aiin"><input id="sk-ai-req" placeholder="예) 지원사업 공고문을 읽고 우리 회사 적합도와 마감일을 정리해 주는 스킬"><button type="button" class="ghost" id="sk-ai-go">초안 만들기</button></div><div id="sk-ai-msg" class="muted small"></div></div>
+          <label class="cu-f">스킬 이름 <small class="muted">(/이름 으로 부릅니다. 띄어쓰기 없이)</small><input id="sk-name" maxlength="40" placeholder="예) 제안서초안"></label>
+          <label class="cu-f">한 줄 설명<input id="sk-desc" maxlength="300" placeholder="예) 제안서 초안을 개조식으로 만든다"></label>
+          <label class="cu-f">입력 안내 <small class="muted">(이 스킬을 고르면 입력창에 보이는 안내)</small><input id="sk-hint" maxlength="200" placeholder="예) 제안 대상과 핵심 내용을 적어 주세요"></label>
+          <label class="cu-f">지침 <small class="muted">(AI가 매번 따를 내용: 역할·단계·출력 형식·지킬 규칙)</small><textarea id="sk-body" rows="10" placeholder="예) 당신은 제안서 작성 도우미입니다. 1) 목적 2) 기대효과 3) 추진 일정 순서로 개조식으로 쓰고, 모르는 수치는 [확인 필요: 항목]으로 비워 두세요."></textarea></label>
+          <div class="cu-btns"><button type="button" class="primary" id="sk-save">저장</button><button type="button" class="ghost" id="sk-cancel">취소</button><span id="sk-edit-msg" class="muted small"></span></div>
+        </div>
       </div>
     </div>
   </div>

@@ -1,7 +1,7 @@
 // 맞춤설정·스킬 시험: 입력 정리, 등급 규칙, SKILL.md 읽기, 스킬 보관소, /이름 실행 판별
 const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path');
-const { sanitizeCustom, customApplies, customPrompt, parseSkill, safeSkillName, SkillStore, matchSkill, skillPrompt, LIMIT } = require('../src/main/customize');
+const { parseDraft, sanitizeCustom, customApplies, customPrompt, parseSkill, safeSkillName, SkillStore, matchSkill, skillPrompt, LIMIT } = require('../src/main/customize');
 const results = [];
 const t = (name, fn) => { try { fn(); results.push([true, name]); } catch (e) { results.push([false, name, e.message]); } };
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'skills-'));
@@ -67,6 +67,30 @@ t('/이름 판별: 켜진 스킬만, 나머지 글 분리, 없는 이름·꺼진
 t('스킬 문장: 이름·본문 포함, 안전 규칙을 바꿀 수 없다는 안내', () => {
   const p = skillPrompt({ name: 'a', body: '본문입니다' });
   assert.ok(p.includes('"a"') && p.includes('본문입니다') && p.includes('바꿀 수 없습니다'));
+});
+t('직접 만들기: 저장 → SKILL.md 형식(가져오기와 호환), 목록에 입력 안내 포함', () => {
+  const st = new SkillStore(tmp());
+  st.save({ name: '제안서 초안', description: '개조식으로\n만든다', hint: '대상을 적어 주세요', body: '지침 본문' });
+  const g = st.get('제안서-초안'); assert.strictEqual(g.description, '개조식으로 만든다'); assert.strictEqual(g.hint, '대상을 적어 주세요'); assert.strictEqual(g.body, '지침 본문');
+  assert.strictEqual(st.list()[0].hint, '대상을 적어 주세요');
+  assert.strictEqual(new SkillStore(st.dir).add(fs.readFileSync(path.join(st.dir, '제안서-초안', 'SKILL.md'), 'utf8'), 'x').name, '제안서-초안');
+});
+t('직접 만들기: 이름·본문 없음, 같은 이름은 한국어 오류', () => {
+  const st = new SkillStore(tmp());
+  assert.throws(() => st.save({ name: ' ', body: 'a' }), /이름을 적어/); assert.throws(() => st.save({ name: 'a', body: ' ' }), /지침/);
+  st.save({ name: 'a', body: 'x' }); assert.throws(() => st.save({ name: 'a', body: 'y' }), /이미 있습니다/);
+  st.save({ name: 'a', body: 'z', oldName: 'a' }); assert.strictEqual(st.get('a').body, 'z');
+});
+t('직접 만들기: 이름 바꾸기는 옛 이름을 보관 폴더로 옮기고 꺼 둔 상태를 이어받음', () => {
+  const st = new SkillStore(tmp());
+  st.save({ name: 'old', body: 'x' }); st.setEnabled('old', false);
+  st.save({ name: 'new', body: 'x', oldName: 'old' });
+  assert.deepStrictEqual(st.list().map(s => [s.name, s.enabled]), [['new', false]]);
+});
+t('AI 초안 읽기: 코드블록·잡설이 섞여도 JSON 을 찾고, 잘못된 답은 한국어 오류', () => {
+  const d = parseDraft('네!\n```json\n{"name":"공고 분석","description":"d","hint":"h","instructions":"본문"}\n```');
+  assert.strictEqual(d.name, '공고-분석'); assert.strictEqual(d.body, '본문');
+  assert.throws(() => parseDraft('JSON 없음'), /찾지 못했습니다/); assert.throws(() => parseDraft('{"name":"a"}'), /지침 본문/);
 });
 const bad = results.filter(r => !r[0]);
 results.forEach(r => console.log((r[0] ? 'PASS ' : 'FAIL ') + r[1] + (r[2] ? ' — ' + r[2] : '')));
