@@ -3,8 +3,9 @@
 //  ② 여유(headroom): 엔진 계열(Claude Code·Codex)별로 지금 쓸 수 있는 여유. 읽을 수 있는 신호만 쓴다.
 //     - 한도에 실제로 닿은 기록(풀리는 시각 포함)  ← 가장 믿을 수 있음, 자동
 //     - 최근 24시간 한도 도달 횟수               ← 자동
+//     - Claude Code 출력의 rate_limit_event(5시간·7일 사용률, 초기화 시각) ← 자동, 초기화 시각이 지나면 그 창은 무시 (사양서 04)
 //     - 사용자가 입력한 "사용량 %"(Claude 앱·ChatGPT 사용량 화면 기준) ← 수동, 48시간이 지나면 무시
-//     구독 잔여량을 프로그램이 읽을 방법은 확인되지 않았다(기준서 12장) → 잔여량을 지어내지 않고, 모르면 'unknown'(=보통)으로 둔다.
+//     우선순위: 유효한 자동 값 → 48시간 이내 수동 값 → 정보 없음. Codex 출력 형식은 확인 필요 → 지어내지 않고, 모르면 'unknown'(=보통)으로 둔다.
 const fs = require('fs');
 const path = require('path');
 
@@ -55,12 +56,106 @@ function headroomPenalty(state, need) {
   return Math.max(0, r + adj);
 }
 
-class DevCapacity {
-  constructor(file, clock = Date.now) {
-    this.file = file; this.clock = clock; this.events = [];
-    if (file) { try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); if (Array.isArray(j.events)) this.events = j.events; } catch (_) {} }
+// 구독 사용률 창(사양서 04 0장). 표시 이름은 화면용
+const WINDOW_LABEL = { five_hour: '5시간', seven_day: '7일' };
+const FAMILY_RE = /^[a-z0-9-]{1,24}$/;
+const WIN_RE = /^[a-z0-9_]{1,24}$/;
+const CHOICES = ['switch', 'continue'];   // 물어보기 카드: A = 다른 엔진으로 넘기기, B = 한도까지 계속
+const posNum = v => typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+const toMs = v => { const n = posNum(v); return n > 1e12 ? Math.round(n) : Math.round(n * 1000); };   // 초 단위 유닉스 시각 → ms(이미 ms면 그대로)
+const idText = (v, d) => typeof v === 'string' && v.trim() ? v.trim().slice(0, 64) : d;
+
+// 창 목록 정제: { 창이름: { pct 0~100, resetsAt ms } } — 이상한 값은 그 창만 버린다
+function cleanWindows(w) {
+  const out = {};
+  if (!w || typeof w !== 'object' || Array.isArray(w)) return out;
+  for (const [k, x] of Object.entries(w).slice(0, 8)) {
+    if (!WIN_RE.test(k) || k === '__proto__' || !x || typeof x !== 'object' || Array.isArray(x)) continue;
+    if (typeof x.pct !== 'number') continue;
+    const pct = x.pct, resetsAt = posNum(x.resetsAt);
+    if (!Number.isFinite(pct) || pct < 0 || !resetsAt) continue;
+    out[k] = { pct: Math.min(100, Math.round(pct * 10) / 10), resetsAt: Math.round(resetsAt) };
   }
-  _save() { if (!this.file) return; try { fs.mkdirSync(path.dirname(this.file), { recursive: true }); fs.writeFileSync(this.file, JSON.stringify({ events: this.events.slice(-300) }), 'utf8'); } catch (_) {} }
+  return out;
+}
+
+// Claude Code stream-json 의 rate_limit_event 한 줄 → recordUsage 입력. 형식이 다르거나 값이 이상하면 null (지어내지 않음)
+function usageFromEvent(m, at = Date.now(), family = 'claude') {
+  if (!m || typeof m !== 'object' || m.type !== 'rate_limit_event') return null;
+  const info = m.rate_limit_info;
+  if (!info || typeof info !== 'object') return null;
+  const conv = x => {
+    if (!x || typeof x !== 'object' || typeof x.utilization !== 'number') return null;
+    const u = x.utilization, r = toMs(x.resetsAt);
+    return Number.isFinite(u) && u >= 0 && r ? { pct: u * 100, resetsAt: r } : null;
+  };
+  const raw = {};
+  const uw = info.unifiedWindows && typeof info.unifiedWindows === 'object' ? info.unifiedWindows : {};
+  for (const k of Object.keys(uw)) { const v = conv(uw[k]); if (v) raw[k] = v; }
+  if (typeof info.rateLimitType === 'string' && !raw[info.rateLimitType]) { const v = conv(info); if (v) raw[info.rateLimitType] = v; }   // 창 목록이 없을 때는 대표 값 하나
+  const windows = cleanWindows(raw);
+  return Object.keys(windows).length ? { family, windows, at } : null;
+}
+
+class DevCapacity {
+  // opts: { org, user } — 상품화 대비 기록 칸(기본 default/owner)
+  constructor(file, clock = Date.now, opts = {}) {
+    this.file = file; this.clock = clock; this.events = []; this.usage = {}; this.choices = {};
+    this.org = idText(opts.org, 'default'); this.user = idText(opts.user, 'owner');
+    if (file) {
+      try {
+        const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (Array.isArray(j.events)) this.events = j.events.filter(e => e && typeof e === 'object' && !Array.isArray(e));
+        if (j.usage && typeof j.usage === 'object') for (const [f, u] of Object.entries(j.usage)) {
+          const w = u && cleanWindows(u.windows);
+          if (FAMILY_RE.test(f) && w && Object.keys(w).length) this.usage[f] = { windows: w, at: posNum(u.at), org: idText(u.org, this.org), user: idText(u.user, this.user) };
+        }
+        if (j.choices && typeof j.choices === 'object') for (const [f, c] of Object.entries(j.choices)) {
+          if (FAMILY_RE.test(f) && c && CHOICES.includes(c.choice) && posNum(c.resetsAt)) this.choices[f] = { choice: c.choice, resetsAt: posNum(c.resetsAt), at: posNum(c.at), org: idText(c.org, this.org), user: idText(c.user, this.user) };
+        }
+      } catch (_) {}
+    }
+  }
+  _save() { if (!this.file) return; try { fs.mkdirSync(path.dirname(this.file), { recursive: true }); fs.writeFileSync(this.file, JSON.stringify({ events: this.events.slice(-300), usage: this.usage, choices: this.choices }), 'utf8'); } catch (_) {} }
+  // 자동 사용률 기록(계열별 최신 1건). u: { family, windows: { five_hour: { pct, resetsAt(ms) }, ... }, at, org?, user? }. 저장하면 true
+  recordUsage(u) {
+    if (!u || typeof u !== 'object' || typeof u.family !== 'string' || !FAMILY_RE.test(u.family)) return false;
+    const windows = cleanWindows(u.windows);
+    if (!Object.keys(windows).length) return false;
+    const at = posNum(u.at) || this.clock();
+    const prev = Object.hasOwn(this.usage, u.family) ? this.usage[u.family] : null;
+    if (prev && prev.at > at) return false;   // 늦게 도착한 옛 값으로 덮지 않는다
+    this.usage[u.family] = { windows, at, org: idText(u.org, this.org), user: idText(u.user, this.user) };
+    this._save();
+    return true;
+  }
+  // 물어보기 카드 선택을 "이번 초기화까지" 기억. choice: 'switch'(A)|'continue'(B), resetsAt: 그 창의 초기화 시각(ms). 저장하면 true
+  setChoice(family, choice, resetsAt, who = {}) {
+    const r = posNum(resetsAt);
+    if (typeof family !== 'string' || !FAMILY_RE.test(family) || !CHOICES.includes(choice) || r <= this.clock()) return false;
+    this.choices[family] = { choice, resetsAt: r, at: this.clock(), org: idText(who.org, this.org), user: idText(who.user, this.user) };
+    this._save();
+    return true;
+  }
+  // 기억한 선택(초기화 시각이 지났으면 지우고 null)
+  getChoice(family) {
+    const c = Object.hasOwn(this.choices, family) ? this.choices[family] : null;
+    if (!c) return null;
+    if (c.resetsAt <= this.clock()) { delete this.choices[family]; this._save(); return null; }
+    return c.choice;
+  }
+  clearChoice(family) { if (Object.hasOwn(this.choices, family)) { delete this.choices[family]; this._save(); } }
+  // 사용률 한 가지로 정리: 유효한 자동 창 중 큰 값 → 48시간 이내 수동 값 → 정보 없음
+  usageOf(family, cap) {
+    const now = this.clock();
+    const u = Object.hasOwn(this.usage, family) ? this.usage[family] : null;
+    let best = null;
+    if (u) for (const [k, w] of Object.entries(u.windows)) if (w.resetsAt > now && (!best || w.pct > best.pct)) best = { pct: w.pct, window: k, resetsAt: w.resetsAt };
+    if (best) return { usedPct: best.pct, window: best.window, resetsAt: best.resetsAt, source: 'auto', at: u.at };
+    const used = cap && cap.usedPct !== null && cap.usedPct !== '' && typeof cap.usedPct !== 'boolean' ? Number(cap.usedPct) : NaN, at = cap ? posNum(cap.at) : 0;
+    if (Number.isFinite(used) && used >= 0 && at && at <= now && now - at <= 48 * HOUR) return { usedPct: Math.min(100, used), window: null, resetsAt: 0, source: 'manual', at };
+    return { usedPct: null, window: null, resetsAt: 0, source: 'none', at: 0, stale: !!(cap && cap.usedPct !== null && cap.usedPct !== '' && cap.usedPct !== undefined && at) };
+  }
   // ev: { family, engineId, kind: 'ok'|'limit'|'fail'|'login'|'missing', resumeAt?, level?, volume?, ms? }
   record(ev) {
     if (!ev || !ev.family) return;
@@ -82,23 +177,26 @@ class DevCapacity {
   // 지브스가 최근에 이 계열로 시킨 작업 수(참고 표시용)
   recentRuns(family, hours = 24) { const from = this.clock() - hours * HOUR; return this.events.filter(e => e.family === family && e.at >= from && e.kind !== 'missing').length; }
   // 한 계열의 여유 상태. cap = 설정의 { usedPct, at }(사용자 입력, 없을 수 있음)
+  // 반환: { state, until, note, usedPct, window, resetsAt, source:'auto'|'manual'|'none' }
   state(family, cap) {
     const now = this.clock();
+    const u = this.usageOf(family, cap);
+    const use = { usedPct: u.usedPct, window: u.window, resetsAt: u.resetsAt, source: u.source };
     const until = this.limitUntil(family);
-    if (until) return { state: 'out', until, note: `한도 도달 — ${fmt(until)}에 풀림` };
+    if (until) return { state: 'out', until, note: `한도 도달 — ${fmt(until)}에 풀림`, ...use };
     let st = 'unknown', note = '';
-    const used = cap && Number(cap.usedPct), at = cap && Number(cap.at);
-    if (Number.isFinite(used) && cap.usedPct !== null && cap.usedPct !== '' && at && now - at <= 48 * HOUR) {
-      st = used >= 90 ? 'low' : used >= 75 ? 'tight' : 'ok';
-      note = `사용 ${Math.round(used)}% 입력(${ageText(now - at)} 전)`;
-    } else if (cap && cap.usedPct !== null && cap.usedPct !== '' && at) note = '입력한 사용량이 오래돼 무시';
+    if (u.source !== 'none') {
+      st = u.usedPct >= 90 ? 'low' : u.usedPct >= 75 ? 'tight' : 'ok';
+      note = u.source === 'auto' ? `${WINDOW_LABEL[u.window] || u.window} 사용 ${Math.round(u.usedPct)}% 자동(${fmt(u.resetsAt)} 초기화)`
+        : `사용 ${Math.round(u.usedPct)}% 입력(${ageText(now - u.at)} 전)`;
+    } else if (u.stale) note = '입력한 사용량이 오래돼 무시';
     const lim = this.recentLimits(family);
     if (lim >= 2 && STATE_RANK[st] < STATE_RANK.low) { st = 'low'; note = (note ? note + ' · ' : '') + `최근 24시간 한도 ${lim}회`; }
     else if (lim >= 1 && STATE_RANK[st] < STATE_RANK.tight) { st = 'tight'; note = (note ? note + ' · ' : '') + '최근 24시간 한도 1회'; }
-    return { state: st, until: 0, note: note || '정보 없음(보통으로 봄)' };
+    return { state: st, until: 0, note: note || '정보 없음(보통으로 봄)', ...use };
   }
 }
 const fmt = t => { try { return new Date(t).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }); } catch (_) { return ''; } };
 const ageText = ms => ms < HOUR ? Math.max(1, Math.round(ms / 60000)) + '분' : ms < 24 * HOUR ? Math.round(ms / HOUR) + '시간' : Math.round(ms / (24 * HOUR)) + '일';
 
-module.exports = { estimateVolume, needOf, effectiveLevel, headroomPenalty, DevCapacity, VOL_LABEL, STATE_RANK };
+module.exports = { estimateVolume, needOf, effectiveLevel, headroomPenalty, DevCapacity, VOL_LABEL, STATE_RANK, WINDOW_LABEL, usageFromEvent, cleanWindows };

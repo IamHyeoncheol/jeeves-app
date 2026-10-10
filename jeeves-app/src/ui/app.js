@@ -767,6 +767,8 @@ function devDoneStats(ev) {
   let h = `<div class="devstats">엔진: ${ch || '-'} · 난이도 L${ev.level || '?'}${ev.estUsd ? ` · 참고용 추정 $${ev.estUsd.toFixed(3)} (구독이라 실제 청구 아님)` : ''}`;
   if (ev.teamTasks && ev.teamTasks.length) h += `<br>작업별: ${ev.teamTasks.map(t => `${t.id}.${esc(t.title)} ${t.ok ? '✓' : '✗'}(${esc((t.by || '').replace('주니어 · ', '주니어 '))})`).join(' · ')}`;
   if (c) h += `<br>폴더 변경: 새 파일 ${c.added.length}개${c.added.length ? ' (' + list(c.added, 6) + ')' : ''} · 수정 ${c.modified.length}개${c.modified.length ? ' (' + list(c.modified, 6) + ')' : ''} · 삭제 ${c.removed.length}개${c.removed.length ? ' (' + list(c.removed, 6) + ')' : ''}${c.truncated ? ' · 파일이 많아 일부만 비교' : ''}`;
+  const at = (ev.attribution || []).filter(a => a.files && a.files.length);   // AI별 작업 내역(0.50): 어느 AI가 어느 파일의 몇째 줄을 바꿨는지
+  if (at.length) h += `<br>AI별 변경: ` + at.map(a => `<b>${esc(a.stage ? a.stage + ' · ' : '')}${esc(a.engine)}</b> ` + a.files.slice(0, 5).map(f => `${esc(f.path)}[${f.change === 'added' ? '추가' : f.change === 'removed' ? '삭제' : '수정'}${f.plus != null ? ` +${f.plus}/−${f.minus}` : ''}${f.regions && f.regions[0] ? ` ${f.regions[0].from}~${f.regions[0].to}줄` : ''}]`).join(', ') + (a.files.length > 5 ? ` 외 ${a.files.length - 5}개` : '')).join(' · ');
   if (ev.denied && ev.denied.length) h += `<br>막힌 요청(허용 목록 밖): ${ev.denied.map(esc).join(' / ')}`;
   if (ev.verified === false && ev.verifyNote) h += `<br>🔎 미검증: ${esc(ev.verifyNote)}`;
   return h + '</div>';

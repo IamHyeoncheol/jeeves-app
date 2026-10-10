@@ -11,6 +11,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 // 지브스 도구(MCP) 호출 한 번을 Claude Code 가 기다리는 최대 시간: 지브스의 사용자 확인 대기(10분)보다 길게. 실기 기록에서 질문이 60초 만에 'The operation timed out' 으로 끊겼음(2026-10-10)
+const usageSink = require('../dev/usage-sink');
 const MCP_WAIT_MS = 11 * 60 * 1000;
 
 const RULES = `당신은 Jeeves 브라우저의 작업 엔진으로 실행되었습니다.
@@ -109,7 +110,7 @@ function runClaudeChat({ bin, model, system, prompt, workDir, web = false, readS
       while ((i = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
         if (!line) continue;
-        try { const m = JSON.parse(line); if (m.type === 'result') result = m; } catch (_) {}
+        try { const m = JSON.parse(line); if (m.type === 'result') result = m; else usageSink.feed(m); } catch (_) {}
       }
     });
     child.stderr.setEncoding('utf8');
@@ -224,6 +225,7 @@ class ClaudeCodeTask extends EventEmitter {
   }
 
   handle(m) {
+    if (m.type === 'rate_limit_event') { usageSink.feed(m); return; }   // 구독 사용률(5시간·7일) 자동 수집
     if (m.type === 'system' && m.subtype === 'init') {
       this.sessionId = m.session_id || this.sessionId;
       const mcp = (m.mcp_servers || []).find(s => s.name === 'jeeves');

@@ -2,6 +2,7 @@
 // 지브스가 최상위: 어떤 엔진을 언제 쓸지, 한도에 걸리면 어디로 넘길지는 dev-router(규칙)가 정하고, 이 파일은 실행·감시만 한다.
 // 로그인 정보는 읽지 않는다(각 AI 의 정품 프로그램이 자기 로그인으로 처리).
 const { spawn, execFile } = require('child_process');
+const usageSink = require('../dev/usage-sink');
 const { EventEmitter } = require('events');
 const fs = require('fs');
 const os = require('os');
@@ -178,6 +179,7 @@ class DevTask extends EventEmitter {
   }
 
   handleClaude(m) {
+    if (m.type === 'rate_limit_event') { usageSink.feed(m); return; }   // 구독 사용률 자동 수집
     if (m.type === 'system' && m.subtype === 'init') { this.sessionId = m.session_id || this.sessionId; this.log('engine', { text: `Claude Code 연결됨 (모델 ${m.model || '기본'})` }); }
     else if (m.type === 'assistant' && m.message && Array.isArray(m.message.content)) {
       this.turns++;

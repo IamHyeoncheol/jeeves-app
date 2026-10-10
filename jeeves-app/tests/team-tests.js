@@ -14,7 +14,7 @@ const junior = { id: 'jr-x', label: '주니어 · 로컬', kind: 'api-coder', fa
 // 가짜 작업 클래스: handler(opts) → 결과 일부. 호출 기록을 calls 에 남긴다.
 const fakeClass = (handler, calls) => class extends EventEmitter {
   constructor(o) { super(); this.o = o; }
-  start() { setImmediate(async () => { calls.push({ by: this.o.engine.id, goal: this.o.goal }); const r = await handler(this.o); this.emit('finished', { success: true, summary: 'ok', kind: 'ok', engineId: this.o.engine.id, engineLabel: this.o.engine.label, subscription: this.o.engine.cost !== 'free', estUsd: 0, changes: null, denied: [], ...r }); }); }
+  start() { setImmediate(async () => { calls.push({ by: this.o.engine.id, goal: this.o.goal }); const r = await handler(this.o); if (/2단계: 구현/.test(this.o.goal) && !(r && r.noChange)) fs.writeFileSync(path.join(this.o.folder, 'impl-' + calls.length + '.txt'), 'x'); /* 구현 조각은 실제로 파일을 바꿈(0.50 헛완료 방지) */ this.emit('finished', { success: true, summary: 'ok', kind: 'ok', engineId: this.o.engine.id, engineLabel: this.o.engine.label, subscription: this.o.engine.cost !== 'free', estUsd: 0, changes: null, denied: [], ...r }); }); }
   stop() {}
 };
 const run = (folder, handler, extra = {}) => new Promise(resolve => {
@@ -121,6 +121,13 @@ const T_HIGH = [{ id: 1, title: '핵심 로직', desc: '계산 규칙', files: [
     const d = tmp();
     const { done } = await run(d, o => { if (/1단계/.test(o.goal)) writeTasks(d, T3.slice(0, 1)); else fs.writeFileSync(path.join(d, 'a.txt'), '1'); });
     assert.ok(done.changes.added.includes('a.txt') && !done.changes.added.some(f => f.startsWith('.jeeves')));
+  });
+
+  await t('팀(0.50): 구현 조각이 파일을 하나도 안 바꾸고 "성공"하면 완료로 치지 않고 멈춤 + AI별 변경 내역 표시', async () => {
+    const d = tmp();
+    const { done } = await run(d, o => { if (/1단계/.test(o.goal)) writeTasks(d, T_HIGH); return /2단계: 구현/.test(o.goal) ? { noChange: true } : null; });
+    assert.strictEqual(done.success, false);
+    assert.ok(/변경 없음/.test(done.summary) && /AI별 변경 내역/.test(done.summary), done.summary);
   });
 
   let fail = 0;

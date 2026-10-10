@@ -9,6 +9,8 @@ const path = require('path');
 const { runChain } = require('./dev-chain');
 const { snapshotDir, diffSnap } = require('./dev-engine');
 const { runCommand } = require('./api-coder');
+const { testDir } = require('./handoff');
+const A = require('../dev/attribution');
 
 const MAX_TASKS = 10;
 
@@ -58,14 +60,13 @@ function readTasks(folder) {
   return tasks.length ? tasks : null;
 }
 
-function hasTestScript(folder) {
-  try { const p = JSON.parse(fs.readFileSync(path.join(folder, 'package.json'), 'utf8')); const s = p.scripts && p.scripts.test; return !!s && !/no test specified/i.test(s); } catch (_) { return false; }
-}
+function hasTestScript(folder) { return !!testDir(folder); }   // 프로젝트 폴더 또는 바로 아래 하위 폴더(예: jeeves-app)의 package.json
 
 // opts: { id, goal, folder, level, planFor(level, 'junior'|'senior'|'any') → 엔진 목록, devRouter, bins, workDir, router, grade, krwPerUsd, emit, juniorMaxLevel, verify=true, ApiClass, TaskClass }
 function runTeam(o) {
   const { id, goal, folder, level, emit, planFor } = o;
-  const base = { id, folder, devRouter: o.devRouter, bins: o.bins, workDir: o.workDir, router: o.router, grade: o.grade, krwPerUsd: o.krwPerUsd, ApiClass: o.ApiClass, TaskClass: o.TaskClass, timeoutMs: o.timeoutMs, onAttempt: o.onAttempt };
+  const base = { id, folder, devRouter: o.devRouter, bins: o.bins, workDir: o.workDir, router: o.router, grade: o.grade, krwPerUsd: o.krwPerUsd, ApiClass: o.ApiClass, TaskClass: o.TaskClass, timeoutMs: o.timeoutMs, onAttempt: o.onAttempt, avoid: o.avoid };
+  const attribution = [];   // 단계·조각마다 어느 AI가 무엇을 바꿨는지
   let waitAssign = null;
   const respond = p => { if (waitAssign) { const f = waitAssign; waitAssign = null; f(p); } };
   let stopped = false, cur = null, usd = 0, subscription = true, started = false;
@@ -74,11 +75,11 @@ function runTeam(o) {
   const before = snapshotDir(folder);
   const info = text => emit({ taskId: id, type: 'info', text });
 
-  const stage = (title, chain, stageGoal, lv, verify = false) => new Promise(resolve => {   // verify: 구현 단계만 "실제로 바뀐 파일이 있는가"를 코드로 확인
+  const stage = (title, chain, stageGoal, lv, verify = false) => new Promise(resolve => {   // verify: 구현 단계만 "실제로 바뀐 파일이 있는가"를 코드로 확인(바뀐 게 없으면 실패)
     cur = runChain({
-      ...base, goal: stageGoal, chain, level: lv, verify,
+      ...base, goal: stageGoal, chain, level: lv, verify, requireChange: verify,
       emit: ev => {
-        if (ev.type === 'done') { usd += ev.estUsd || 0; if (ev.subscription === false) subscription = false; for (const c of ev.chain || []) attempts.push({ label: c.label, ok: c.ok, kind: c.kind }); resolve(ev); }
+        if (ev.type === 'done') { usd += ev.estUsd || 0; for (const a of ev.attribution || []) attribution.push({ ...a, stage: title }); if (ev.subscription === false) subscription = false; for (const c of ev.chain || []) attempts.push({ label: c.label, ok: c.ok, kind: c.kind }); resolve(ev); }
         else if (ev.type === 'start') info(`▶ ${title} — ${ev.engineLabel}`);
         else emit(ev);
       }
@@ -88,7 +89,8 @@ function runTeam(o) {
 
   const finish = (success, summary, extra) => {
     let changes = null; try { changes = diffSnap(before, snapshotDir(folder)); } catch (_) {}
-    emit({ taskId: id, type: 'done', success, summary, dev: true, engine: 'dev', engineLabel: '팀 작업', level, chain: attempts, changes, denied: [], estUsd: usd, subscription, team: true, ...(extra || {}) });
+    const attrTxt = attribution.some(a => a.files && a.files.length) ? '\n\n[AI별 변경 내역]\n' + A.summarize(attribution.filter(a => a.files && a.files.length).map(a => ({ ...a, engine: `${a.stage} · ${a.engine}` })), { maxFiles: 4 }) : '\n\n[AI별 변경 내역] 바뀐 파일 없음';
+    emit({ taskId: id, type: 'done', success, summary: summary + attrTxt, dev: true, engine: 'dev', engineLabel: '팀 작업', level, chain: attempts, attribution, changes, denied: [], estUsd: usd, subscription, team: true, ...(extra || {}) });
   };
 
   (async () => {
@@ -152,12 +154,13 @@ function runTeam(o) {
     let verify = '해당 없음(시험 항목 없음)';
     if (o.verify !== false && hasTestScript(folder)) {
       info('🧪 3단계: 자동 검증(npm test)');
-      let v = await runCommand(folder, 'npm test', 180000);
+      const tdir = testDir(folder);
+      let v = await runCommand(tdir, 'npm test', 180000);
       if (!v.ok && !v.rejected) {
         info('⚠ 검증 실패 → 시니어가 고칩니다');
         const f = await stage('검증 수정', planFor(Math.max(level, 3), 'senior'), fixPrompt(goal, v.text), level);
         if (stopNow()) return finish(false, '사용자가 작업을 중지했습니다.', { kind: 'stopped' });
-        v = await runCommand(folder, 'npm test', 180000);
+        v = await runCommand(tdir, 'npm test', 180000);
         verify = v.ok ? '통과(수정 후)' : '실패';
         log.push(`검증: ${verify}${f.success ? '' : ' (시니어 수정도 실패)'}`);
       } else verify = v.rejected ? '실행 못 함' : '통과';

@@ -16,3 +16,6 @@ secrets*
 Thumbs.db
 # 시작 때 자동 업데이트 기록
 jeeves-app/update-log.txt
+.jeeves/
+# 시험 임시 폴더
+jeeves-app/tests/.tmp-*/

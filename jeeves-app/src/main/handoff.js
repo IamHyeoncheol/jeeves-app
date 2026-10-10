@@ -66,21 +66,23 @@ function checkSyntax(folder, files, limit = 60) {
 }
 
 // ── 시험 실행(프로젝트에 npm test 가 있을 때만, 코드가 실행 → 토큰 0) ──
-function testCommand(folder) {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(folder, 'package.json'), 'utf8'));
-    const t = pkg && pkg.scripts && pkg.scripts.test;
-    if (!t || /no test specified/i.test(t)) return null;
-    return 'npm test';
-  } catch (_) { return null; }
+const hasTest = dir => { try { const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); const t = pkg && pkg.scripts && pkg.scripts.test; return !!t && !/no test specified/i.test(t); } catch (_) { return false; } };
+// 시험을 돌릴 폴더: 프로젝트 폴더에 package.json(test)이 있으면 그곳, 없으면 바로 아래 하위 폴더 중 첫 번째(예: 지브스_Jeeves\jeeves-app)
+function testDir(folder) {
+  if (hasTest(folder)) return folder;
+  let ents = []; try { ents = fs.readdirSync(folder, { withFileTypes: true }); } catch (_) { return null; }
+  for (const e of ents) if (e.isDirectory() && !/^(\.|node_modules$)/.test(e.name) && hasTest(path.join(folder, e.name))) return path.join(folder, e.name);
+  return null;
 }
+function testCommand(folder) { return testDir(folder) ? 'npm test' : null; }
 function runTests(folder, timeoutMs = 180000) {
   return new Promise(resolve => {
-    if (!testCommand(folder)) return resolve({ ran: false });
+    const dir = testDir(folder);
+    if (!dir) return resolve({ ran: false });
     const win = process.platform === 'win32';
     let out = '', done = false;
     let child;
-    try { child = spawn(win ? 'npm.cmd' : 'npm', ['test', '--silent'], { cwd: folder, shell: win, windowsHide: true, env: { ...process.env, CI: '1', FORCE_COLOR: '0' } }); }
+    try { child = spawn(win ? 'npm.cmd' : 'npm', ['test', '--silent'], { cwd: dir, shell: win, windowsHide: true, env: { ...process.env, CI: '1', FORCE_COLOR: '0' } }); }
     catch (_) { return resolve({ ran: false }); }
     const fin = (code, timedOut) => {
       if (done) return; done = true; clearTimeout(timer);
@@ -201,4 +203,4 @@ function readPrevHandoff(folder, goal) {
   } catch (_) { return null; }
 }
 
-module.exports = { NOTICE, scrub, goalHash, acquireLock, releaseLock, checkSyntax, testCommand, runTests, checkpoint, parseReport, buildHandoff, writeHandoff, appendLedger, readPrevHandoff, MAX_HANDOFF };
+module.exports = { NOTICE, scrub, goalHash, acquireLock, releaseLock, checkSyntax, testCommand, testDir, runTests, checkpoint, parseReport, buildHandoff, writeHandoff, appendLedger, readPrevHandoff, MAX_HANDOFF };

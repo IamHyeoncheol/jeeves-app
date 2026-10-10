@@ -15,6 +15,7 @@ const { pickFolderFor } = require('../dev/folder-pick');
 const { DevCapacity, estimateVolume, needOf, effectiveLevel } = require('../dev/dev-capacity');
 const { checkFolder, findBinary, snapshotDir } = require('./dev-engine');
 const { runChain } = require('./dev-chain');
+const { codexChat } = require('./codex-chat');
 const { detectLocalModels, buildJuniorEngines } = require('../dev/local-ai');
 const { runTeam } = require('./dev-team');
 const { customApplies, customPrompt, hasCustomText, SkillStore, matchSkill, skillPrompt, DRAFT_SYSTEM, parseDraft } = require('./customize');
@@ -39,7 +40,8 @@ let extCard = { id: null, last: 0 }, extSeq = 0;
 const tasks = new Map();
 let taskSeq = 0;
 const internalMcpToken = require('crypto').randomBytes(24).toString('base64url');   // 지브스가 띄운 Claude Code 전용(실행마다 새로 만들고 저장하지 않음)
-let subRestUntil = 0;   // 구독(Claude Code) 한도에 걸렸을 때 쉬는 시각(이때까지 구독을 건너뜀)
+let subRestUntil = 0;
+let codexRestUntil = 0;   // Codex 구독이 한도일 때 대화 경로에서 잠시 건너뜀   // 구독(Claude Code) 한도에 걸렸을 때 쉬는 시각(이때까지 구독을 건너뜀)
 const { ConversationStore } = require('./conversations');
 let convs = null;       // 대화 저장소(껐다 켜도 유지)
 let activeConvId = null; // 지금 열려 있는 대화
@@ -359,7 +361,9 @@ async function chatSend({ text, includePage, mode, infoGrade, lowerOk, gradeAck,
     catch (e) { if (!failoverOn) return { ok: false, error: e.message }; if (e.kind !== 'none') { notes.push('무료 공급자 사용 불가 → 다음 단계'); failMsg = e.message; } }
   }
   // 2단계: 구독(Claude Code)
-  if (cfgNow.engine.useForChat !== false && engineGradeOk(cfgNow, grade) && Date.now() >= subRestUntil) {
+  const claudeTight = failoverOn ? avoidTight({ family: 'claude' }) : null;   // 사용률이 전환 기준을 넘었으면 대화에도 Claude 구독을 아낀다
+  if (claudeTight) notes.push(`Claude 구독 ${claudeTight} → 건너뜀`);
+  if (!claudeTight && cfgNow.engine.useForChat !== false && engineGradeOk(cfgNow, grade) && Date.now() >= subRestUntil) {
     const bin = await findClaude(cfgNow.engine.claudePath);
     if (bin) {
       const model = role === 'summarize' ? 'haiku' : (cfgNow.engine.claudeModel || '');   // 요약은 한도가 덜 드는 가벼운 모델
@@ -381,20 +385,52 @@ async function chatSend({ text, includePage, mode, infoGrade, lowerOk, gradeAck,
       } catch (e) {
         if (e.kind === 'limit') subRestUntil = e.resumeAt ? new Date(e.resumeAt).getTime() : Date.now() + 30 * 60e3;   // 한도가 풀릴 때까지 구독은 건너뜀
         if (!failoverOn) return { ok: false, error: e.message };
-        notes.push(`구독 ${e.kind === 'limit' ? '한도 도달' : e.kind === 'login' ? '로그인 필요' : '오류'} → API 공급자로 자동 전환`); failMsg = failMsg || e.message;
+        notes.push(`Claude 구독 ${e.kind === 'limit' ? '한도 도달' : e.kind === 'login' ? '로그인 필요' : '오류'} → 다음 단계로 자동 전환`); failMsg = failMsg || e.message;
       } finally { if (attDir) { try { fs.rmSync(attDir, { recursive: true, force: true }); } catch (_) {} } }
+    }
+  }
+  // 2-2단계: 다른 구독(Codex · ChatGPT 구독) — 크레딧(API) 결제 전에 쓴다. 글만 주고받고(사진 제외), Codex 허용 등급(기본 I) 이하만
+  const dv = cfgNow.dev || {}, cx = dv.codex || {};
+  const imgsAll = atts.filter(a => a.kind === 'image');
+  if (failoverOn && cx.enabled !== false && !imgsAll.length && gradeRank(grade) <= gradeRank(['P', 'I', 'C'].includes(cx.maxGrade) ? cx.maxGrade : 'I') && Date.now() >= codexRestUntil) {
+    const cbin = await findBinary('codex', cx.path);
+    if (cbin) {
+      const hist = chatHistory.slice(-20).map(m => `${m.role === 'user' ? '사용자' : 'AI'}: ${m.content.map(b => b.text).join(' ')}`).join('\n');
+      const prompt = `[지시]\n${system}\n\n파일을 읽거나 명령을 실행하지 말고 글로만 답하세요.\n\n` + (hist ? `[이전 대화]\n${hist}\n\n` : '') + `[질문]\n${blocks.filter(b => b.type === 'text').map(b => b.text).join('\n\n')}`;
+      try {
+        const out = await codexChat({ bin: cbin, prompt, workDir: path.join(app.getPath('userData'), 'codex-chat') });
+        if (policy) policy.cost({ kind: 'subscription', source: 'chat', role, engine: 'codex', usd: null, billed: false, ...pol() });
+        notes.push('Claude 구독 대신 Codex 구독으로 답함(크레딧 사용 없음)');
+        return done(out.text, 'Codex 구독 (ChatGPT)', null);
+      } catch (e) {
+        if (e.kind === 'limit') codexRestUntil = Date.now() + 30 * 60e3;
+        notes.push(`Codex ${e.kind === 'limit' ? '한도 도달' : e.kind === 'login' ? '로그인 필요' : '오류'} → 다음 단계`); failMsg = failMsg || e.message;
+      }
     }
   }
   // 3단계: API 키 공급자(여기서도 막히면 라우터가 다음 공급자로 자동 전환)
   // 여기부터는 인터넷 도구가 없음: 실시간 정보 질문이면 작업 모드(검색 가능)를 권한다
   if (role === 'chat' && !liveAck && needsLiveInfo(text)) return { ok: false, needLive: true };
+  let apiErr = null;
   try {
     const res = await router.call(role, apiReq);
     noteFo(res);
     return fromRes(res);
-  } catch (e) {
-    return { ok: false, error: e.message + (failMsg && !e.message.includes(failMsg.slice(0, 20)) ? `\n(앞 단계 안내: ${failMsg.slice(0, 200)})` : '') };
+  } catch (e) { apiErr = e; }
+  // 4단계: 내 PC 로컬 AI(Ollama·LM Studio) — 무료·외부 전송 없음(모든 등급 가능). 품질은 낮을 수 있어 마지막에 쓰고 표시한다
+  if (failoverOn && !imgsAll.length) {
+    try {
+      const locals = (await detectLocalModels((u, o) => net.fetch(u, o))).filter(m => !m.code).sort((a, b) => b.sizeB - a.sizeB);
+      const lm = locals[0] || (await detectLocalModels((u, o) => net.fetch(u, o)))[0];
+      if (lm) {
+        const res = await router.callProvider({ type: 'openai', label: lm.label, baseUrl: lm.baseUrl, apiKey: lm.apiKey, tier: 'free', maxGrade: 'S' }, lm.model, { ...apiReq, meta: { source: 'chat' } });
+        notes.push(`구독·API 모두 막혀 내 PC 로컬 AI(${lm.model})로 답함 — 품질이 낮을 수 있음`);
+        return fromRes(res);
+      }
+    } catch (e) { failMsg = failMsg || ('로컬 AI 오류: ' + e.message); }
   }
+  const e = apiErr || new Error('쓸 수 있는 AI가 없습니다.');
+  return { ok: false, error: e.message + (failMsg && !e.message.includes(failMsg.slice(0, 20)) ? `\n(앞 단계 안내: ${failMsg.slice(0, 200)})` : '') + '\n(확인한 순서: 무료 → Claude 구독 → Codex 구독 → API 키 → 내 PC 로컬 AI)' };
 }
 // 실패해도 질문은 왼쪽 목록에 남긴다(답을 못 받은 경우: 공급자 없음·한도·오류 등). 등급 확인·실시간 안내처럼 "다시 보내는" 응답은 제외.
 function logErr(where, e) { try { fs.appendFileSync(path.join(app.getPath('userData'), 'jeeves-errors.log'), `${new Date().toISOString()} [${where}] ${e && e.stack ? e.stack : e}\n`, 'utf8'); } catch (_) {} }
@@ -795,6 +831,18 @@ async function resumeJob(job, id) {
   send('agent:event', { taskId: id, type: 'resume', text: `한도가 풀려 이어서 진행합니다 — ${p._chain.map(c => c.label).join(' → ')}` });
   runDevJob(job, p, id);
 }
+// 넘김(전환·승격) 대상에서 뺄 엔진: 한도에 닿았거나 사용률이 전환 기준(설정 dev.switchRule[계열].pct, 기본 90%)을 넘은 구독 계열
+function avoidTight(engine) {
+  const f = engine && engine.family;
+  if (!devCap || !FAMILIES.includes(f)) return null;
+  const all = config.get(), cap = ((all.dev || {}).capacity || {})[f];
+  const rule = (((all.dev || {}).switchRule) || {})[f] || {};
+  if (rule.action === 'continue') return null;   // 사용자가 "한도까지 계속"을 고른 계열
+  const st = devCap.state(f, cap);
+  if (st.state === 'out') return '한도 도달';
+  const pct = Number(rule.pct) || 90;
+  return st.usedPct != null && st.usedPct >= pct ? `사용률 ${Math.round(st.usedPct)}% ≥ 기준 ${pct}%` : null;
+}
 function runDevJob(job, p, id) {
   const workDir = path.join(app.getPath('userData'), 'dev-work');
   const resumed = (job.resumes || 0) > 0;
@@ -803,6 +851,7 @@ function runDevJob(job, p, id) {
     : o => runChain({ ...o, chain: p._chain });
   job.state = 'running'; job.level = p.difficulty.level; job.volume = p.volume.value; saveJobs();
   const ctl = runner({ id, goal: job.fullGoal + (resumed ? RESUME_NOTE : ''), folder: job.folder, devRouter, bins: p._bins, workDir, level: p.difficulty.level, router, grade: job.grade, krwPerUsd: config.get().ui.krwPerUsd || 1400,
+    avoid: avoidTight,   // 사용률이 기준을 넘은 계열(Claude 등)로는 전환·승격하지 않음(추가 크레딧·한도 소모 방지)
     onAttempt: (engine, r) => { if (devCap && engine && engine.family) devCap.record({ family: engine.family, engineId: engine.id, kind: r.success ? 'ok' : (['limit', 'login', 'missing'].includes(r.kind) ? r.kind : 'fail'), resumeAt: r.resumeAt, level: p.difficulty.level, volume: p.volume.value }); },
     emit: ev => {
       if (ev.type !== 'done') return send('agent:event', ev);
@@ -901,6 +950,7 @@ app.whenReady().then(async () => {
   convs.onError = e => logErr('대화 파일 쓰기', e);
   config = new ConfigStore(userData, safeStorage);
   devCap = new DevCapacity(path.join(userData, 'jeeves-dev-usage.json'));
+  require('../dev/usage-sink').setUsageSink(u => { try { devCap.recordUsage(u); } catch (_) {} });   // Claude Code 출력의 구독 사용률을 자동 기록
   devJobsFile = path.join(userData, 'jeeves-dev-pending.json'); loadJobs();
   router = new ModelRouter(() => config.get(), (url, opts) => net.fetch(url, opts));
   setupPolicy(userData);
