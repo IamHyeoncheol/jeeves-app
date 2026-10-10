@@ -3,11 +3,17 @@
 const fs = require('fs'), path = require('path');
 const args = process.argv.slice(2);
 const isClaude = args.includes('--output-format');
-const mode = isClaude ? process.env.FAKE_CLAUDE_MODE : process.env.FAKE_CODEX_MODE;
+// FAKE_SEQ="limit,login,ok" 이면 호출 순번(로그 줄 수)대로 동작을 정한다(엔진 종류와 무관) — 임의 순서·횟수 전환 시험용
+const seq = process.env.FAKE_SEQ ? process.env.FAKE_SEQ.split(',') : null;
+let callNo = 0;
+if (seq) { try { callNo = fs.readFileSync(process.env.FAKE_LOG, 'utf8').split('\n').filter(Boolean).length; } catch (_) {} }
+const mode = seq ? (seq[callNo] || 'ok') : (isClaude ? process.env.FAKE_CLAUDE_MODE : process.env.FAKE_CODEX_MODE);
 let stdin = '';
 process.stdin.on('data', d => stdin += d);
 process.stdin.on('end', () => {
-  fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify({ who: isClaude ? 'claude' : 'codex', args, stdin, cwd: process.cwd() }) + '\n');
+  let handoff = null; try { handoff = fs.readFileSync(path.join(process.cwd(), '.jeeves', 'HANDOFF.md'), 'utf8'); } catch (_) {}
+  fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify({ who: isClaude ? 'claude' : 'codex', args, stdin, cwd: process.cwd(), handoff }) + '\n');
+  if (seq) fs.writeFileSync(path.join(process.cwd(), 'step-' + callNo + '.txt'), 'x');   // 실패하더라도 일부 결과물은 남는다
   const out = o => process.stdout.write(JSON.stringify(o) + '\n');
   if (isClaude) {
     out({ type: 'system', subtype: 'init', session_id: 's1', model: 'fake' });

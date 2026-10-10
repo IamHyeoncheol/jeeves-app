@@ -17,6 +17,7 @@ const E = {
 // 순서대로 다음 엔진을 주는 가짜 라우터(규칙 판정은 dev-tests 가 따로 시험)
 const router = () => ({ used() {}, rest() {}, next(chain, id) { const i = chain.findIndex(e => e.id === id); return chain[i + 1] || null; } });
 const run = (order, env, folder, extra) => new Promise(resolve => {
+  delete process.env.FAKE_SEQ;
   const log = path.join(folder, '..', path.basename(folder) + '.log');
   Object.assign(process.env, { FAKE_LOG: log, FAKE_CLAUDE_MODE: 'ok', FAKE_CODEX_MODE: 'ok' }, env);
   const events = [];
@@ -127,6 +128,58 @@ const ho = d => fs.readFileSync(path.join(d, '.jeeves', 'HANDOFF.md'), 'utf8');
   await t('handoff:false 이면 .jeeves 에 아무것도 만들지 않음(기존 동작)', async () => {
     const d = tmp(); const { done, log } = await run(['codex'], {}, d, { handoff: false });
     assert.ok(done.success && !fs.existsSync(path.join(d, '.jeeves')) && !/지브스 인수인계 안내/.test(log[0].stdin));
+  });
+
+  // ── 임의 순서·임의 횟수 전환 (사용자 확인: 순서·횟수는 정해진 것이 아님) ──
+  const NOTICE_HEAD = '[지브스 인수인계 안내]';
+  const runSeq = (bases, seq, folder) => new Promise(resolve => {
+    const log = path.join(folder, '..', path.basename(folder) + '.log');
+    Object.assign(process.env, { FAKE_LOG: log, FAKE_SEQ: seq.join(',') });
+    const chain = bases.map((b, i) => ({ ...E[b], id: b + i }));   // 같은 종류가 여러 번 나와도 id 는 서로 다르게(모델 단계가 다른 Claude 처럼)
+    const bins = new Proxy({}, { get: () => fake });
+    runChain({ id: 9, goal: '앱을 만들어줘', folder, chain, devRouter: router(), bins, grade: 'I', workDir: path.join(folder, '..', path.basename(folder) + '-w'), level: 3,
+      emit: ev => { if (ev.type === 'done') { delete process.env.FAKE_SEQ; resolve({ chain, done: ev, log: fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse) }); } } });
+  });
+  // 앞 엔진들은 한도·로그인으로 막히고 마지막이 성공하는 시나리오. 매 전환마다 인수인계 내용을 검증한다.
+  const checkChain = async (bases) => {
+    const d = tmp();
+    const seq = bases.map((b, i) => i === bases.length - 1 ? 'ok' : (b === 'claude' && i % 2 === 1 ? 'login' : 'limit'));
+    const { chain, done, log } = await runSeq(bases, seq, d);
+    const tag = bases.join('→');
+    assert.ok(done.success, tag + ': 마지막 엔진이 완료해야 함');
+    assert.strictEqual(log.length, bases.length, tag + ': 엔진 실행 횟수');
+    log.forEach((e, i) => {
+      assert.ok(e.stdin.includes(NOTICE_HEAD) && e.stdin.includes('앱을 만들어줘'), tag + ` #${i + 1}: 공통 안내·목표 원문`);
+      assert.strictEqual(/\[이어서 진행\]/.test(e.stdin), i > 0, tag + ` #${i + 1}: 이어서 진행 문구`);
+      if (i === 0) return;
+      const h = e.handoff || '';
+      const hist = (h.split('## 시도 이력')[1] || '').split('\n## ')[0].split('\n').filter(l => /^- \d+\. /.test(l));
+      assert.strictEqual(hist.length, i, tag + ` #${i + 1}: 이전 시도 ${i}건이 이력에 있어야 함`);
+      hist.forEach((l, j) => assert.ok(l.includes(chain[j].label) && /사용 한도|로그인 필요/.test(l), tag + ` #${i + 1}: 이력 ${j + 1} 내용`));
+      for (let j = 0; j < i; j++) assert.ok(h.includes('step-' + j + '.txt'), tag + ` #${i + 1}: 앞선 엔진이 남긴 step-${j}.txt 가 폴더 상태에 있어야 함`);
+      assert.ok(h.length <= H.MAX_HANDOFF + 2, tag + ': 상한');
+    });
+    assert.ok(!fs.existsSync(path.join(d, '.jeeves', 'LOCK')), tag + ': LOCK 해제');
+    assert.strictEqual(fs.readFileSync(path.join(d, '.jeeves', 'LEDGER.jsonl'), 'utf8').trim().split('\n').length, bases.length, tag + ': 장부 줄 수');
+  };
+
+  await t('임의 순서 ①: 3종 엔진의 모든 순열 6가지(Claude·Codex·기타) 전환', async () => {
+    const perms = [['claude', 'codex', 'other'], ['claude', 'other', 'codex'], ['codex', 'claude', 'other'], ['codex', 'other', 'claude'], ['other', 'claude', 'codex'], ['other', 'codex', 'claude']];
+    for (const p of perms) await checkChain(p);
+  });
+
+  await t('임의 순서 ②: 같은 종류 반복·길이 2~8 무작위 전환 40가지(시드 고정)', async () => {
+    let seed = 20261010; const rnd = n => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+    const kinds = ['claude', 'codex', 'other'];
+    for (let k = 0; k < 40; k++) {
+      const len = 2 + rnd(7); const bases = Array.from({ length: len }, () => kinds[rnd(3)]);
+      await checkChain(bases);
+    }
+  });
+
+  await t('임의 순서 ③: 전환 8회 연속에도 HANDOFF 는 상한 이내, 목표 원문 유지', async () => {
+    const bases = ['claude', 'codex', 'other', 'claude', 'codex', 'other', 'claude', 'codex', 'other'];
+    await checkChain(bases);
   });
 
   let fail = 0;
