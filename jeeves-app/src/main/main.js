@@ -1,5 +1,5 @@
 // Jeeves(가칭) — 메인 프로세스: 창, 탭, AI 대화, 에이전트 작업을 연결한다.
-const { app, BrowserWindow, ipcMain, session, safeStorage, net, Menu, dialog, clipboard, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, session, safeStorage, net, Menu, dialog, clipboard, shell, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { ConfigStore, parseKeyFile } = require('./config');
@@ -43,7 +43,7 @@ let historyFile;
 app.setName('Jeeves');
 if (process.env.JEEVES_USER_DATA) app.setPath('userData', process.env.JEEVES_USER_DATA); // 테스트용 별도 저장 공간
 if (!app.requestSingleInstanceLock()) app.quit();
-if (process.platform === 'win32') app.setAppUserModelId('kr.jeeves.app');   // 작업 표시줄이 electron.exe 의 기본 아이콘 대신 지브스 창 아이콘을 쓰고, 바탕화면 바로가기와 같은 그룹으로 묶이게 함
+if (process.platform === 'win32') app.setAppUserModelId('kr.jeeves.desktop');   // 작업 표시줄이 electron.exe 의 기본 아이콘 대신 지브스 창 아이콘을 쓰고, 바탕화면 바로가기와 같은 그룹으로 묶이게 함
 // Windows 가 다른 창에 가려진 창을 '안 보임'으로 판단해 백그라운드 탭을 멈추는 기능 끄기 (에이전트 탭이 계속 일하도록)
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -101,11 +101,12 @@ function createWindow() {
     try {
       const appRoot = path.join(__dirname, '..', '..');
       win.setAppDetails({
-        appId: 'kr.jeeves.app',
+        appId: 'kr.jeeves.desktop',
         appIconPath: path.join(appRoot, 'build', 'icon.ico'), appIconIndex: 0,
         relaunchCommand: `wscript.exe "${path.join(appRoot, '..', 'Jeeves.vbs')}"`,
         relaunchDisplayName: 'Jeeves'
       });
+      win.setIcon(nativeImage.createFromPath(path.join(appRoot, 'build', 'icon.ico')));   // 창 아이콘을 명시로 한 번 더 지정
     } catch (e) { /* 실패해도 앱 실행에는 영향 없음 */ }
   }
   win.loadFile(path.join(__dirname, '..', 'ui', 'index.html'));
