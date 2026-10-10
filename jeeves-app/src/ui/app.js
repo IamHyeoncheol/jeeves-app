@@ -529,9 +529,14 @@ async function runDev(text, atts, opts) {
   ensureCard(r.id, { goal: text });
 }
 // 작업(Work) 중 브라우저 조작
+async function resolveWhere(text, picked) {   // '자동 탭 선택'이면 규칙(AI 없음)으로 정한다
+  if (picked && picked !== 'auto') return { where: picked, tag: '' };
+  const r = (await api.dev.autoTab(text, { includePage: $('#include-page').checked })) || { where: 'background', reason: '기본값' };
+  return { where: r.where === 'current' ? 'current' : 'background', tag: ` · 탭 자동(${r.reason})` };
+}
 async function runBrowser(text, atts, opts) {
-  const where = opts.where || $('#where').value;
-  addUser(text, (where === 'current' ? '🤖 작업(Work) · 브라우저 · 지금 탭' : '🤖 작업(Work) · 브라우저 · 백그라운드 탭') + ` · 🔒${chatGrade}` + (opts.autoTag || ''), { kind: 'act', mode: 'act', route: 'browser', where, attachments: atts });
+  const wr = await resolveWhere(text, opts.where || $('#where').value), where = wr.where;
+  addUser(text, (where === 'current' ? '🤖 작업(Work) · 브라우저 · 지금 탭' : '🤖 작업(Work) · 브라우저 · 백그라운드 탭') + ` · 🔒${chatGrade}` + wr.tag + (opts.autoTag || ''), { kind: 'act', mode: 'act', route: 'browser', where, attachments: atts });
   if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
   const r = await api.agent.start(text, where, chatGrade, pendingProject || activeProject, atts);
   if (r.error) { addErr(r.error); return; }
@@ -640,7 +645,7 @@ async function sendMessage(textOverride, opts = {}) {
     wait.remove(); $('#send').disabled = false;
     if (ch === 'act') {
       const goal = `구글에서 검색해서 확인하고 결과를 쉽게 정리해 줘: ${text}`;
-      const where = $('#where').value;
+      const where = (await resolveWhere(goal, $('#where').value)).where;
       addUser(goal, (where === 'current' ? '🤖 작업(Work) · 브라우저 · 지금 탭' : '🤖 작업(Work) · 브라우저 · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act', mode: 'act', route: 'browser', where });
       const r = await api.agent.start(goal, where, chatGrade, pendingProject || activeProject);
       if (r.error) addErr(r.error); else ensureCard(r.id, { goal });

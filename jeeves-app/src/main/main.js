@@ -10,7 +10,7 @@ const { AgentTask } = require('../agent/agent');
 const { JeevesMcpServer } = require('./mcp-server');
 const { ClaudeCodeTask, runClaudeChat, findClaude, getVersion } = require('./cc-engine');
 const { analyzeDifficulty, buildEngines, DevRouter, juniorSafe, classifyRoute } = require('../dev/dev-router');
-const { classifyInput, resolveRoute } = require('../dev/auto-route');
+const { classifyInput, resolveRoute, pickTab } = require('../dev/auto-route');
 const { DevCapacity, estimateVolume, needOf, effectiveLevel } = require('../dev/dev-capacity');
 const { checkFolder, findBinary, snapshotDir } = require('./dev-engine');
 const { runChain } = require('./dev-chain');
@@ -259,6 +259,7 @@ async function ideaSend({ text, projectId }) {
 }
 ipcMain.handle('idea:check', (_, text) => ideaCheck(text));
 ipcMain.handle('dev:route', (_, goal) => resolveRoute(goal));   // 작업 입력이 개발인지 브라우저 조작인지(규칙, AI 없음). 둘 다 신호가 있으면 마지막 행동 낱말로 가린다
+ipcMain.handle('dev:auto-tab', (_, text, opts) => pickTab(text, opts));   // 브라우저 작업의 탭(새 백그라운드/지금 보는 탭)을 규칙으로 고름
 ipcMain.handle('dev:auto-route', (_, text) => classifyInput(text));   // "기본(자동)" 탭: 대화/작업을 규칙으로 판정(AI 없음)
 async function chatSend({ text, includePage, mode, infoGrade, lowerOk, gradeAck, liveAck, attachments, convId, projectId }) {
   if (mode === 'idea') return ideaSend({ text, projectId });

@@ -41,4 +41,14 @@ function classifyInput(text) {
   return { mode: 'chat', confidence: 'high', reasons: ['일반 대화로 보임'] };
 }
 
-module.exports = { classifyInput, resolveRoute };
+// 브라우저 작업을 어느 탭에서 할지 규칙으로 정한다(AI 없음). 기본은 사용자를 방해하지 않는 새 백그라운드 탭.
+// '지금 보는 탭'은 글에서 지금 화면·이 페이지를 가리키거나, 현재 페이지 내용 포함을 켠 때만.
+const HERE_RE = /(이|현재|지금|여기|열려\s*있는|보고\s*있는|열어\s*둔|보는|열린)\s*(보는|보고\s*있는|열려\s*있는|열린)?\s*(페이지|화면|탭|사이트|창|웹)|여기서|이\s*(글|내용|표|목록)/;
+function pickTab(text, opts = {}) {
+  const s = String(text || '');
+  if (HERE_RE.test(s)) return { where: 'current', reason: '지금 보는 화면을 가리키는 말이 있음' };
+  if (opts.includePage) return { where: 'current', reason: '"현재 페이지 내용 포함"이 켜져 있음' };
+  return { where: 'background', reason: '기본값(보고 있는 탭을 건드리지 않음)' };
+}
+
+module.exports = { classifyInput, resolveRoute, pickTab };

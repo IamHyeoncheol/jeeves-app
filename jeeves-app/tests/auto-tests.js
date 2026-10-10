@@ -1,6 +1,6 @@
 // "기본(자동)" 입력 분류 시험(0.46): 대화/작업(개발·브라우저)을 규칙으로 가르고, 애매하면 대화로만 답한다(실행 없음).
 const assert = require('assert');
-const { classifyInput, resolveRoute } = require('../src/dev/auto-route');
+const { classifyInput, resolveRoute, pickTab } = require('../src/dev/auto-route');
 const { classifyRoute } = require('../src/dev/dev-router');
 
 const results = [];
@@ -49,6 +49,15 @@ const c = g => classifyInput(g);
       assert.ok(r.mode === 'work' ? ['dev', 'browser'].includes(r.route) : r.route === undefined, g);
       assert.ok(['high', 'low'].includes(r.confidence), g);
     }
+  });
+
+  await t('탭 자동 선택: 기본은 새 백그라운드 탭, 지금 화면을 가리키면 지금 탭', () => {
+    assert.strictEqual(pickTab('기업마당에서 전기안전 지원사업 공고 찾아줘').where, 'background');
+    assert.strictEqual(pickTab('').where, 'background');
+    for (const g of ['이 페이지에서 가격표를 정리해줘', '지금 보는 화면의 표를 복사해줘', '여기서 로그인 버튼 눌러줘', '현재 탭의 글을 요약해줘'])
+      assert.strictEqual(pickTab(g).where, 'current', g);
+    assert.strictEqual(pickTab('가격 비교해줘', { includePage: true }).where, 'current');
+    assert.ok(pickTab('x').reason.length > 0);
   });
 
   let fail = 0;

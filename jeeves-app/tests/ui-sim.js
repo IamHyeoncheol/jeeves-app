@@ -3,7 +3,7 @@
 const { JSDOM } = require('jsdom');
 const fs = require('fs'), path = require('path');
 const root = process.argv[2];
-const { resolveRoute, classifyInput } = require(path.join(root, 'src/dev/auto-route.js'));   // 메인 프로세스와 같은 규칙(dev:route·dev:auto-route)
+const { resolveRoute, classifyInput, pickTab } = require(path.join(root, 'src/dev/auto-route.js'));   // 메인 프로세스와 같은 규칙(dev:route·dev:auto-route)
 const html = fs.readFileSync(path.join(root, 'src/ui/index.html'), 'utf8').replace(/<script src="app.js"><\/script>/, '');
 const js = fs.readFileSync(path.join(root, 'src/ui/app.js'), 'utf8');
 const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true, url: 'http://localhost/' });
@@ -25,6 +25,7 @@ function mk(pathArr) {
       calls.push({ key, args });
       if (key === 'dev.route') return Promise.resolve(resolveRoute(args[0]));
       if (key === 'dev.autoRoute') return Promise.resolve(classifyInput(args[0]));
+      if (key === 'dev.autoTab') return Promise.resolve(pickTab(args[0], args[1]));
       if (key === 'chat.send') return Promise.resolve({ ok: true, text: '답변입니다', meta: 'm', convId: 'c' + calls.length });
       if (key in dflt) return Promise.resolve(JSON.parse(JSON.stringify(dflt[key])));
       return Promise.resolve({});
