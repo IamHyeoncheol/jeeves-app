@@ -97,6 +97,17 @@ function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false, nodeIntegration: false }
   });
   Menu.setApplicationMenu(null);
+  if (process.platform === 'win32') {   // 작업 표시줄 고정(핀)·다시 실행 때도 지브스 아이콘이 나오게: 고정 항목이 electron.exe 아이콘으로 만들어지는 것을 막음
+    try {
+      const appRoot = path.join(__dirname, '..', '..');
+      win.setAppDetails({
+        appId: 'kr.jeeves.app',
+        appIconPath: path.join(appRoot, 'build', 'icon.ico'), appIconIndex: 0,
+        relaunchCommand: `wscript.exe "${path.join(appRoot, '..', 'Jeeves.vbs')}"`,
+        relaunchDisplayName: 'Jeeves'
+      });
+    } catch (e) { /* 실패해도 앱 실행에는 영향 없음 */ }
+  }
   win.loadFile(path.join(__dirname, '..', 'ui', 'index.html'));
 
   tabs = new TabManager(win, { partition: PARTITION, viewport: config.get().agent.viewport });
