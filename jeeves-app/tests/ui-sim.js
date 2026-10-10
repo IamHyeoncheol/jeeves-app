@@ -165,6 +165,16 @@ const click = (el, act) => { el.querySelector(`.msg-actions [data-act=${act}]`).
   agentHandler({ taskId: 't', type: 'done', success: true, summary: 'ok' }); await tick();
   $('#reset-chat').click(); await tick();
   ok(w.document.body.classList.contains('mode-auto'), '새 대화는 기본(자동)으로 시작');
+  // 9) 작업 폴더: 미리 정해 둔 값이 아니라 지시·대화 맥락으로 (0.48)
+  dflt['dev.plan'] = { ok: false, needFolder: true, error: '폴더를 정하지 못했습니다' }; dflt['dev.pickFolder'] = { ok: true, folder: 'D:\\picked' };
+  const plans0 = calls.filter(c => c.key === 'dev.plan').length;
+  await send('폴더 단서가 없는 새 앱을 만들어줘', 'act');
+  const pl = calls.filter(c => c.key === 'dev.plan');
+  ok(pl.length === plans0 + 2 && pl[pl.length - 2].args[0].folder === undefined && pl[pl.length - 1].args[0].folder === 'D:\\picked', '폴더를 모르면(전역 고정값 없이) 먼저 묻고, 고른 폴더로 다시 계획');
+  dflt['dev.plan'] = { ok: true, chain: [{ id: 'c', label: 'Claude Code', cost: 'subscription' }], difficulty: { level: 2, label: '보통', reasons: ['x'] }, folder: 'D:\\picked', folderSource: '지시문의 경로', folderReason: '지시문에 적힌 경로 D:\\picked', create: true, empty: true, fileCount: 0, grade: 'I', skipped: [], team: null };
+  await send('D:\\picked 에 새 앱을 만들어줘', 'act');
+  const dc = $('.devplan'); ok(dc && /폴더 결정: 지시문의 경로/.test(dc.textContent) && /새로 만듭니다/.test(dc.textContent), '계획 카드에 작업 폴더와 결정 이유 표시');
+  dc.querySelector('[data-a=no]').click(); await tick();
   ok(errs.length === 0, '스크립트 오류 없음: ' + errs.join(' | '));
   console.log(`sim: ${pass} 통과 / ${fail} 실패`);
   process.exit(fail ? 1 : 0);

@@ -11,6 +11,7 @@ const { JeevesMcpServer } = require('./mcp-server');
 const { ClaudeCodeTask, runClaudeChat, findClaude, getVersion } = require('./cc-engine');
 const { analyzeDifficulty, buildEngines, DevRouter, juniorSafe, classifyRoute } = require('../dev/dev-router');
 const { classifyInput, resolveRoute, pickTab } = require('../dev/auto-route');
+const { pickFolderFor } = require('../dev/folder-pick');
 const { DevCapacity, estimateVolume, needOf, effectiveLevel } = require('../dev/dev-capacity');
 const { checkFolder, findBinary, snapshotDir } = require('./dev-engine');
 const { runChain } = require('./dev-chain');
@@ -637,12 +638,19 @@ async function devAvail(all) {
 let devCap = null;   // 엔진 계열별 한도 기록(userData\jeeves-dev-usage.json)
 const HOUR_MS = 3600 * 1000, MAX_WAIT_MS = 12 * HOUR_MS;
 const FAMILIES = ['claude', 'codex'];
-async function devPlan({ goal, infoGrade, folder, attachments, engineId, hint }) {
+async function devPlan({ goal, infoGrade, folder, attachments, engineId, hint, sessionFolder, create }) {
   const all = config.get(), grade = pickGrade(infoGrade);
-  const fc = checkFolder(folder || all.dev.folder, { userData: app.getPath('userData') });
+  // 작업 폴더는 미리 정해 둔 값이 아니라 지시문·대화 맥락으로 정한다(0.48). 직접 지정(folder)이 있으면 그것이 우선.
+  const fstat = p => { try { const st = fs.statSync(p); return st.isDirectory() ? 'dir' : 'file'; } catch (_) { return null; } };
+  const pf = folder ? { folder, source: '직접 지정', reason: '직접 고른 폴더', create: !!create } : pickFolderFor(goal, { sessionFolder, stat: fstat });
+  if (!pf.folder) return { ok: false, needFolder: true, lastFolder: all.dev.folder || '', error: '이번 작업을 할 폴더를 정하지 못했습니다. ' + pf.reason };
+  const wantCreate = !!pf.create && !fstat(pf.folder);
+  const fc = wantCreate
+    ? (() => { const pc = checkFolder(path.dirname(pf.folder), { userData: app.getPath('userData') }); return pc.ok ? { ok: true, folder: path.resolve(pf.folder) } : pc; })()
+    : checkFolder(pf.folder, { userData: app.getPath('userData') });
   if (!fc.ok) return { ok: false, error: fc.error };
   const atts = sanitizeAtts(attachments);
-  const snap = snapshotDir(fc.folder, 3000);
+  const snap = wantCreate ? { files: new Map(), truncated: false } : snapshotDir(fc.folder, 3000);
   const diff = analyzeDifficulty(goal + atts.filter(a => a.kind === 'text').map(a => '\n' + a.text.slice(0, 2000)).join(''), { hasImages: atts.some(a => a.kind === 'image'), fileCount: snap.files.size });
   // 분량·여유: 난이도(어려움)와 별개로 일의 넓이와 지금 쓸 수 있는 여유를 본다(규칙 계산, AI 호출 0)
   const vol = estimateVolume(goal + atts.filter(a => a.kind === 'text').map(a => '\n' + a.text.slice(0, 2000)).join(''), { attCount: atts.length, hasImages: atts.some(a => a.kind === 'image'), fileCount: snap.files.size });
@@ -671,7 +679,7 @@ async function devPlan({ goal, infoGrade, folder, attachments, engineId, hint })
   // 한도로 지금 맡길 곳이 없고, 풀리는 시각을 아는 경우 → 그 시각에 자동 착수(예약)
   const waitAt = !chain.length && outs.length ? Math.min(...outs.map(x => x.until || Infinity)) : 0;
   const waiting = waitAt && isFinite(waitAt) && waitAt - Date.now() <= MAX_WAIT_MS ? { resumeAt: waitAt } : null;
-  const out = { ok: true, folder: fc.folder, grade, difficulty: { ...diff, level, baseLevel: diff.level }, volume: { value: vol.volume, label: vol.label, reasons: vol.reasons }, need, capacity: capView, waiting, chain: chain.map(view), skipped: [...plan.skipped, ...juniorOut], empty: snap.files.size === 0, fileCount: snap.files.size, team: team ? { seniors: planFor(level, 'senior').filter(e => !e.weak).map(e => e.label), juniors: planFor(2, 'junior').map(e => e.label) } : null, _team: team, _planFor: planFor, _jrMax: Math.min(3, Number(jr.maxLevel) || 2), _chain: chain, _bins: bins, _atts: atts };
+  const out = { ok: true, folder: fc.folder, folderSource: pf.source, folderReason: pf.reason, folderBroad: !!pf.broad, create: wantCreate, grade, difficulty: { ...diff, level, baseLevel: diff.level }, volume: { value: vol.volume, label: vol.label, reasons: vol.reasons }, need, capacity: capView, waiting, chain: chain.map(view), skipped: [...plan.skipped, ...juniorOut], empty: snap.files.size === 0, fileCount: snap.files.size, team: team ? { seniors: planFor(level, 'senior').filter(e => !e.weak).map(e => e.label), juniors: planFor(2, 'junior').map(e => e.label) } : null, _team: team, _planFor: planFor, _jrMax: Math.min(3, Number(jr.maxLevel) || 2), _chain: chain, _bins: bins, _atts: atts };
   if (!chain.length) out.error = '지금 이 작업을 맡길 수 있는 개발 AI가 없습니다. ' + (plan.skipped.length ? plan.skipped.map(x => x.label + ': ' + x.why).join(' / ') : '설정 → 개발 모드에서 엔진을 켜고, Claude Code 설치·로그인을 확인하세요.');
   return out;
 }
@@ -686,8 +694,8 @@ ipcMain.handle('dev:pick-folder', async () => {
   config.update({ dev: { folder: fc.folder } });
   return { ok: true, folder: fc.folder };
 });
-ipcMain.handle('dev:open-folder', async () => {
-  const fc = checkFolder(config.get().dev.folder, { userData: app.getPath('userData') });
+ipcMain.handle('dev:open-folder', async (_, folder) => {
+  const fc = checkFolder(folder || config.get().dev.folder, { userData: app.getPath('userData') });
   if (!fc.ok) return { error: fc.error };
   const err = await shell.openPath(fc.folder);   // 비어 있으면 성공, 문자열이면 오류
   return err ? { error: '폴더를 열지 못했습니다: ' + err } : { ok: true };
@@ -770,11 +778,12 @@ function runDevJob(job, p, id) {
 }
 const jobCardInfo = (job, p) => ({ level: job.level, label: p ? p.difficulty.label : '', reasons: p ? p.difficulty.reasons : [], folder: job.folder, chain: p ? p.chain.map(c => c.label) : [] });
 
-ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, engineId, projectId }) => {
+ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, engineId, projectId, create }) => {
   goal = String(goal || '').trim();
   if (!goal) return { error: '개발할 내용을 입력해 주세요.' };
-  const p = await devPlan({ goal, infoGrade, folder, attachments, engineId });
-  if (!p.ok) return { error: p.error };
+  const p = await devPlan({ goal, infoGrade, folder, attachments, engineId, create });
+  if (!p.ok) return { error: p.error || '작업 폴더를 정하지 못했습니다.' };
+  if (p.create) { try { fs.mkdirSync(p.folder, { recursive: true }); } catch (e) { return { error: '새 폴더를 만들지 못했습니다: ' + e.message }; } }
   const autoRes = config.get().dev.autoResume !== false;
   if (!p._chain.length && !(p.waiting && autoRes)) return { error: p.error };
   for (const r of devRuns.values()) if (r.folder.toLowerCase() === p.folder.toLowerCase()) return { error: '이 폴더에서는 이미 개발 작업이 진행 중입니다. 끝나거나 중지한 뒤 다시 지시해 주세요.' };

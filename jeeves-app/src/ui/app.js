@@ -516,16 +516,22 @@ window.addEventListener('drop', e => e.preventDefault());
 
 // 작업(Work) 중 개발: 계획 카드 확인 → 개발 AI(Claude Code·Codex·기타) 실행
 async function runDev(text, atts, opts) {
-  if (!(cfg.dev && cfg.dev.folder)) { const f = await pickDevFolder(); if (!f) { $('#input').value = text; return; } }
-  const p = await api.dev.plan({ goal: text, infoGrade: chatGrade, folder: cfg.dev.folder, attachments: atts });
+  // 작업 폴더: 지시문의 경로 → 이 대화에서 쓰던 폴더 → 모르면 묻는다 (전역 고정 폴더는 쓰지 않음)
+  let p = await api.dev.plan({ goal: text, infoGrade: chatGrade, sessionFolder: devSessionFolder, attachments: atts });
+  if (p && p.needFolder) {
+    addAI('📁 이번 작업을 할 폴더를 지시문에서 알 수 없어 골라 주셔야 합니다. 마지막에 쓴 폴더를 몰래 쓰지 않습니다.');
+    const f = await pickDevFolder(); if (!f) { $('#input').value = text; return; }
+    p = await api.dev.plan({ goal: text, infoGrade: chatGrade, folder: f, attachments: atts });
+  }
   if (!p.ok || !p.chain || (!p.chain.length && !p.waiting)) { addErr(p.error || '개발 계획을 만들지 못했습니다.'); $('#input').value = text; return; }
   const ch = await askDevPlan(p);
   if (ch.toBrowser) return runBrowser(text, atts, opts);   // 규칙이 잘못 가른 경우: 카드에서 브라우저 작업으로 바꿈
   if (ch.cancel) { $('#input').value = text; return; }
   addUser(text, `🛠 작업(Work) · 개발 · L${p.difficulty.level} ${p.difficulty.label}${p.volume ? ' · 분량 ' + p.volume.label : ''} · 🔒${chatGrade}${opts.autoTag || ''}`, { kind: 'act', mode: 'act', route: 'dev', attachments: atts });
   if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
-  const r = await api.dev.start({ goal: text, infoGrade: chatGrade, folder: p.folder, attachments: atts, engineId: ch.engineId || undefined, projectId: pendingProject || activeProject });
+  const r = await api.dev.start({ goal: text, infoGrade: chatGrade, folder: p.folder, create: p.create, attachments: atts, engineId: ch.engineId || undefined, projectId: pendingProject || activeProject });
   if (r.error) { addErr(r.error); return; }
+  devSessionFolder = p.folder; syncDevFolder();
   ensureCard(r.id, { goal: text });
 }
 // 작업(Work) 중 브라우저 조작
@@ -700,24 +706,26 @@ box.addEventListener('click', e => {
 });
 
 // ── 개발(Dev) 모드 ──────────────────────────────────────
+let devSessionFolder = '';   // 이 대화에서 개발 작업을 한 폴더(새 대화를 시작하면 비움). 전역 고정 폴더는 쓰지 않는다.
 async function pickDevFolder() {
   const r = await api.dev.pickFolder();
   if (r && r.error) addErr(r.error);
   if (!r || !r.ok) return null;
   cfg.dev = { ...(cfg.dev || {}), folder: r.folder };
+  devSessionFolder = r.folder;
   syncDevFolder();
   return r.folder;
 }
 function syncDevFolder() {
   const b = $('#dev-folder'); if (!b) return;
-  const f = (cfg && cfg.dev && cfg.dev.folder) || '';
-  b.textContent = f ? '📁 ' + (f.split(/[\\/]/).filter(Boolean).pop() || f) : '📁 폴더 선택';
-  b.title = f ? f + ' (눌러서 탐색기로 열기)' : '개발할 프로젝트 폴더 선택';
+  const f = devSessionFolder;
+  b.textContent = f ? '📁 ' + (f.split(/[\\/]/).filter(Boolean).pop() || f) : '📁 폴더: 지시 기준 자동';
+  b.title = f ? f + ' — 이 대화의 작업 폴더 (눌러서 탐색기로 열기). 지시문에 다른 경로가 있으면 그 경로가 우선합니다' : '작업 폴더는 지시문의 경로 → 이 대화에서 쓰던 폴더 순으로 자동 결정하고, 모르면 물어봅니다. 눌러서 이 대화의 폴더를 직접 지정할 수도 있습니다';
   const ch = $('#dev-folder-change'); if (ch) ch.classList.toggle('hidden', !f);
 }
 $('#dev-folder').onclick = async () => {
-  if (!(cfg && cfg.dev && cfg.dev.folder)) return pickDevFolder();
-  const r = await api.dev.openFolder();   // 폴더를 탐색기로 연다(바꾸려면 옆의 '변경')
+  if (!devSessionFolder) return pickDevFolder();
+  const r = await api.dev.openFolder(devSessionFolder);   // 폴더를 탐색기로 연다(바꾸려면 옆의 '변경')
   if (r && r.error) addErr(r.error);
 };
 $('#dev-folder-change').onclick = () => pickDevFolder();
@@ -737,7 +745,7 @@ function askDevPlan(p) {
       <div>난이도 <b>L${p.difficulty.level} ${esc(p.difficulty.label)}</b> <small class="muted">— ${esc(p.difficulty.reasons.join(', '))}</small></div>
       ${p.volume ? `<div>분량 <b>${esc(p.volume.label)}</b> <small class="muted">— ${esc(p.volume.reasons.join(', '))}</small></div>` : ''}
       ${capLines(p)}
-      <div>📁 ${esc(p.folder)} <small class="muted">${p.empty ? '(비어 있음 — 새로 만들기)' : `(파일 ${p.fileCount}${p.fileCount >= 3000 ? '+' : ''}개 — 기존 프로젝트 수정)`}</small></div>
+      <div>📁 ${esc(p.folder)} <small class="muted">${p.create ? '(없는 폴더 — 새로 만듭니다)' : p.empty ? '(비어 있음 — 새로 만들기)' : `(파일 ${p.fileCount}${p.fileCount >= 3000 ? '+' : ''}개 — 기존 프로젝트 수정)`}</small><br><small class="muted">폴더 결정: ${esc(p.folderSource || '')} — ${esc(p.folderReason || '')}</small>${p.folderBroad ? '<br><small>⚠ 여러 폴더에 걸친 지시라 상위 폴더 전체가 작업 범위입니다. 중요한 폴더는 미리 백업하세요.</small>' : ''}</div>
       <div>🔒 정보 등급 ${p.grade}</div>
       ${p.team ? `<div class="why">👥 <b>팀 작업</b>: 시니어(${esc(p.team.seniors.join(', '))})가 계획·검수, 쉬운 조각은 주니어(${esc(p.team.juniors.join(', '))})가 구현합니다. 주니어가 못 하면 시니어가 이어받고, 끝나면 자동 검증(npm test)이 있습니다.</div>` : ''}
       ${p.waiting && !p.chain.length ? `<div class="why">⏳ 지금은 모든 개발 AI가 사용 한도입니다. <b>${esc(new Date(p.waiting.resumeAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))}</b>에 한도가 풀리면 자동으로 착수합니다(앱이 꺼져도 다시 켜면 이어집니다).</div>`
@@ -1424,6 +1432,7 @@ function showPanelView(v) { const b = document.querySelector(`#panel-tabs button
 async function newChat(projectId) {
   await api.chat.reset();
   curConvId = null; pendingProject = projectId || null; activeProject = projectId || null; activeWorkKey = null;
+  devSessionFolder = ''; syncDevFolder();
   setChatGrade((cfg && cfg.infoGrade) || 'I');
   attachments = []; renderTray();
   box.innerHTML = welcomeHTML; $('#input').value = '';
