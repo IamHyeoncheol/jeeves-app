@@ -137,4 +137,22 @@ class DevRouter {
 
 const REST_MS = { limit: 30 * 60 * 1000, login: 60 * 60 * 1000, missing: 60 * 60 * 1000, error: 2 * 60 * 1000 };
 
-module.exports = { juniorSafe, analyzeDifficulty, buildEngines, DevRouter, gradeOkFor, LEVEL_LABEL, COST_RANK, REST_MS };
+// 작업(Work) 통합 입력: 지시가 "프로젝트 폴더에서 개발하는 일"인지 "브라우저로 사이트를 조작하는 일"인지 규칙으로 가린다(AI 호출 없음, 토큰 0).
+// 한쪽 신호만 있으면 그쪽, 둘 다 있거나 둘 다 없으면 'ask'(사용자에게 한 번 묻는다). 규칙이라 놓칠 수 있어 개발 계획 카드에서도 바꿀 수 있다.
+const DEV_RES = [
+  /(앱|어플|애플리케이션|프로그램|사이트|웹사이트|웹페이지|홈페이지|스크립트|플러그인|챗봇|봇|서버|api|대시보드|게임|기능|화면|페이지)\s*(을|를|도)?\s*(새로\s*)?(만들|개발|구현|제작|추가|수정|고쳐|고치|변경|개선)/i,
+  /(코드|코딩|함수|클래스|버그|리팩터|리팩토링|소스|빌드|컴파일|테스트\s*(코드|작성)|npm|pip|git|깃허브|폴더|\.js|\.py|\.html|\.css|\.ts|\.bat)/i,
+  /(개발|구현|프로그래밍)/, /[A-Za-z]:\\/
+];
+const WEB_RES = [
+  /(검색|찾아|조회|접속|들어가|열어|클릭|로그인|다운로드|내려받|예약|신청|가격\s*비교|뉴스|공고|스크랩|수집|캡처)/,
+  /(네이버|구글|유튜브|쿠팡|기업마당|인터넷에서|웹에서)/
+];
+function classifyRoute(goal) {
+  const g = String(goal || '');
+  const dev = DEV_RES.filter(r => r.test(g)).length, web = WEB_RES.filter(r => r.test(g)).length;
+  const route = dev && !web ? 'dev' : web && !dev ? 'browser' : 'ask';
+  return { route, devHits: dev, webHits: web };
+}
+
+module.exports = { classifyRoute, juniorSafe, analyzeDifficulty, buildEngines, DevRouter, gradeOkFor, LEVEL_LABEL, COST_RANK, REST_MS };

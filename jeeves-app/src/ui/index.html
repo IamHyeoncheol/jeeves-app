@@ -31,7 +31,7 @@
         <div class="sb-sec sec-chat"><div class="sb-h"><span class="sb-tt"><svg class="ico" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>대화 (Chat)</span></div><div id="sb-chats"></div></div>
         <div class="sb-sec sec-idea"><div class="sb-h"><span class="sb-tt"><svg class="ico" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></svg>아이디어 (Idea)</span></div><div id="sb-ideas"></div></div>
         <div class="sb-sec sec-work"><div class="sb-h"><span class="sb-tt"><svg class="ico" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/></svg>작업 (Work)</span></div><div id="sb-works"></div></div>
-        <div class="sb-sec sec-dev"><div class="sb-h"><span class="sb-tt"><svg class="ico" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>개발 (Dev)</span></div><div id="sb-devs"></div></div>
+
       </div>
       <div id="sb-foot">
         <button type="button" id="sb-custom" title="호칭·소개·답변 지침을 적어 두면 대화마다 자동으로 반영됩니다"><svg class="ico" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>맞춤설정</button>
@@ -70,8 +70,7 @@
           <div class="welcome">
             <h2>무엇을 도와드릴까요?</h2>
             <p><b>💬 대화(Chat)</b> — 일반 AI 도구처럼 묻고 답합니다. 검색이 필요한 질문(날씨·뉴스 등)도 됩니다.</p>
-            <p><b>🤖 작업(Work)</b> — 브라우저를 대신 조작합니다. 예) “기업마당에서 전기안전 관련 지원사업 공고 찾아서 마감일 순으로 정리해 줘”</p>
-            <p><b>🛠 개발(Dev)</b> — 고른 프로젝트 폴더 안에서 개발 AI(Claude Code·Codex 등)가 프로그램을 만들고 고칩니다. 일의 난이도를 보고 알맞은 AI를 지브스가 고릅니다.</p>
+            <p><b>🤖 작업(Work)</b> — 지시를 보고 알맞은 방식으로 처리합니다. 사이트 조작이면 브라우저를 대신 조작하고(예: “기업마당에서 전기안전 관련 지원사업 공고 찾아서 마감일 순으로 정리해 줘”), 프로그램 개발이면 고른 프로젝트 폴더 안에서 개발 AI(Claude Code·Codex 등)가 만들고 고칩니다. 애매하면 한 번 물어봅니다.</p>
             <p class="muted">결제·전송·제출·삭제처럼 되돌릴 수 없는 동작은 항상 먼저 물어봅니다. 비밀번호는 직접 입력하세요.</p>
             <div class="quick">
               <button data-quick="summarize">📄 이 페이지 요약</button>
@@ -84,8 +83,7 @@
         <div id="composer">
           <div class="seg small" id="mode">
             <button data-mode="ask" class="on">💬 대화 (Chat)</button>
-            <button data-mode="act">🤖 작업 (Work)</button>
-            <button data-mode="dev">🛠 개발 (Dev)</button>
+            <button data-mode="act" title="사이트 조작(브라우저)과 프로그램 개발(Claude Code·Codex 등)을 지시 내용을 보고 자동으로 나눠 처리합니다">🤖 작업 (Work)</button>
             <button data-mode="idea" title="ExoLobe 에게 공개 정보만으로 아이디어 후보를 묻습니다">💡 아이디어 (Idea)</button>
           </div>
           <div id="attach-tray" class="hidden"></div>
@@ -96,7 +94,7 @@
             <button id="skill-pick" class="ghost ask-only" type="button" title="스킬을 골라 이 질문에 적용합니다">🧩 스킬</button><span id="skill-chip" class="opt ask-only hidden"></span>
             <label class="opt ask-only"><input type="checkbox" id="include-page"> 현재 페이지 내용 포함</label>
             <label class="opt act-only"><select id="where"><option value="background">새 백그라운드 탭에서</option><option value="current">지금 보는 탭에서</option></select></label>
-            <span class="opt dev-only"><button id="dev-folder" class="ghost" type="button" title="개발할 프로젝트 폴더 선택">📁 폴더 선택</button><button id="dev-folder-change" class="link hidden" type="button" title="다른 폴더로 바꾸기">변경</button></span>
+            <span class="opt act-only"><button id="dev-folder" class="ghost" type="button" title="개발 작업을 할 프로젝트 폴더 선택(개발 지시일 때만 사용)">📁 개발 폴더</button><button id="dev-folder-change" class="link hidden" type="button" title="다른 폴더로 바꾸기">변경</button></span>
             <span class="opt act-only engine-badge" id="engine-badge" title="설정 → 구독 연결에서 변경">API</span>
             <span class="spacer"></span>
             <button id="reset-chat" class="ghost" type="button" title="지금 대화를 마치고 새 대화를 시작합니다 (이전 대화는 왼쪽 목록에 남습니다)">＋ 새 대화</button>

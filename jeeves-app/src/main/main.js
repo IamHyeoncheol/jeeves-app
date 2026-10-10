@@ -9,7 +9,7 @@ const { PageDriver, addressBarToUrl } = require('../agent/driver');
 const { AgentTask } = require('../agent/agent');
 const { JeevesMcpServer } = require('./mcp-server');
 const { ClaudeCodeTask, runClaudeChat, findClaude, getVersion } = require('./cc-engine');
-const { analyzeDifficulty, buildEngines, DevRouter, juniorSafe } = require('../dev/dev-router');
+const { analyzeDifficulty, buildEngines, DevRouter, juniorSafe, classifyRoute } = require('../dev/dev-router');
 const { checkFolder, findBinary, snapshotDir } = require('./dev-engine');
 const { runChain } = require('./dev-chain');
 const { detectLocalModels, buildJuniorEngines } = require('../dev/local-ai');
@@ -243,6 +243,7 @@ async function ideaSend({ text, projectId }) {
   return { ok: true, text: answer, model: res.model, costKrw: null, notice: '', meta, convId, title };
 }
 ipcMain.handle('idea:check', (_, text) => ideaCheck(text));
+ipcMain.handle('dev:route', (_, goal) => classifyRoute(goal));   // 작업 입력이 개발인지 브라우저 조작인지(규칙, AI 없음)
 async function chatSend({ text, includePage, mode, infoGrade, lowerOk, gradeAck, liveAck, attachments, convId, projectId }) {
   if (mode === 'idea') return ideaSend({ text, projectId });
   const role = mode === 'summarize' ? 'summarize' : 'chat';

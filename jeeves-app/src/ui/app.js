@@ -236,13 +236,14 @@ $('#fs-up').onclick = () => { chatZoom = Math.min(FS_MAX, chatZoom + FS_STEP); a
 $('#fs-reset').onclick = () => { chatZoom = 100; applyChatZoom(true); };
 applyChatZoom(false);
 function setMode(m) {
+  if (m === 'dev') m = 'act';   // 개발은 작업(Work)에 통합: 지시 내용을 보고 지브스가 나눈다
   mode = m;
   document.body.classList.toggle('mode-ask', m === 'ask');
   document.body.classList.toggle('mode-act', m === 'act');
   document.body.classList.toggle('mode-dev', m === 'dev');
   document.body.classList.toggle('mode-idea', m === 'idea');
   $$('#mode button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-  $('#input').placeholder = m === 'idea' ? '💡 공개해도 되는 주제만 짧게 적어 주세요. 회사 이름·금액·고객 정보는 쓰지 마세요. 예) 수산물 건조 과정을 빠르게 하는 다른 분야의 원리' : m === 'dev' ? '개발할 내용을 구체적으로 적어 주세요. 예) 하루 일정을 시간 블록으로 짜는 플래너 앱을 만들어줘 (화면 시안 사진 첨부 가능)' : m === 'ask' ? (activeSkill && skillHints[activeSkill] ? skillHints[activeSkill] : '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)') : '시킬 일을 구체적으로 적어 주세요. 예) 네이버에서 가양역 근처 회의실 대여 3곳 찾아서 가격 비교';
+  $('#input').placeholder = m === 'idea' ? '💡 공개해도 되는 주제만 짧게 적어 주세요. 회사 이름·금액·고객 정보는 쓰지 마세요. 예) 수산물 건조 과정을 빠르게 하는 다른 분야의 원리' : m === 'ask' ? (activeSkill && skillHints[activeSkill] ? skillHints[activeSkill] : '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)') : '시킬 일을 구체적으로 적어 주세요. 사이트 조작이면 브라우저가, 개발이면 개발 AI가 맡습니다. 예) 네이버에서 가양역 근처 회의실 3곳 가격 비교 / 하루 일정을 시간 블록으로 짜는 플래너 앱을 만들어줘';
 }
 $$('#mode button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
 setMode('ask');
@@ -274,16 +275,18 @@ function addUser(text, tag, info) {
   d._raw = text; d._info = info || { kind: 'chat' };
   if (d._info.attachments && d._info.attachments.length) { const w = document.createElement('div'); w.className = 'atts'; d._info.attachments.forEach(a => w.appendChild(attChip(a, false))); d.insertBefore(w, d.querySelector('.body')); }
   const k = d._info.kind;
-  d.appendChild(actBar(k === 'chat' ? [['copy', '복사', '복사'], ['edit', '수정', '고쳐서 다시 보내기'], ['retry', '재시도', '같은 질문 다시 보내기']] : k === 'sum' ? [['copy', '복사', '복사'], ['retry', '재시도', '다시 요약']] : [['copy', '복사', '복사']]));
+  // 대화·아이디어·작업(브라우저/개발) 모두 같은 단추: 복사 · 수정 · 재시도 (요약은 복사·재시도)
+  d.appendChild(actBar(k === 'sum' ? [['copy', '복사', '복사'], ['retry', '재시도', '다시 요약']] : [['copy', '복사', '복사'], ['edit', '수정', '고쳐서 다시 보내기'], ['retry', '재시도', k === 'act' ? '같은 지시 다시 실행' : '같은 질문 다시 보내기']]));
   box.appendChild(d); scrollDown();
+  return d;
 }
 // 답변(대화·요약): 복사·내보내기·공유·소리내어 읽기·좋은/나쁜 답변·재시도
-function addAI(text, meta, chat) {
+function addAI(text, meta, chat, idea) {
   const d = document.createElement('div');
   d.className = 'msg ai md';
   d.innerHTML = md(text) + (meta ? `<div class="meta">${esc(meta)}</div>` : '');
   if (chat) {
-    d.dataset.chat = '1'; d._raw = text; d._meta = meta || '';
+    d.dataset.chat = '1'; if (idea) d.dataset.idea = '1'; d._raw = text; d._meta = meta || '';
     d.appendChild(actBar([['copy', '복사', '답변 복사'], ['export', '내보내기', '파일로 저장'], ['share', '공유', '다른 앱으로 공유'], ['speak', '🔊 읽기', '소리내어 읽기'], ['good', '👍', '좋은 답변'], ['bad', '👎', '나쁜 답변'], ['retry', '재시도', '다시 답변 받기']]));
   }
   box.appendChild(d); scrollToMsg(d);
@@ -296,10 +299,29 @@ function toastIn(el, t) {
 function plainText(t) { return String(t || '').replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>|]/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'); }
 // 이 메시지(질문)부터 아래 메시지를 화면에서 지우고, 대화 기록도 그 앞까지만 남긴다
 async function cutFrom(userEl) {
-  const k = [...box.querySelectorAll('.msg.ai[data-chat]')].filter(a => userEl.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_PRECEDING).length;
+  const info = userEl._info || {};
+  const k = [...box.querySelectorAll('.msg.ai[data-chat]:not([data-idea])')].filter(a => userEl.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_PRECEDING).length;
   let n = userEl;
-  while (n) { const nx = n.nextElementSibling; if (n.classList.contains('msg')) n.remove(); n = nx; }
+  while (n) {
+    const nx = n.nextElementSibling;
+    if (n.classList.contains('card')) for (const [id, c] of cards) if (c.el === n) cards.delete(id);   // 지운 카드는 기억에서도 뺀다
+    if (n.classList.contains('msg') || n.classList.contains('card') || n.classList.contains('prompt')) n.remove();
+    n = nx;
+  }
+  if (info.mode === 'idea') {   // 아이디어는 질문마다 따로 저장된 대화라, 다시 하면 그 대화를 지우고 새로 받는다
+    if (info.convId) { try { await api.sidebar.deleteConv(info.convId); } catch (_) {} if (curConvId === info.convId) curConvId = null; }
+    return;
+  }
   await api.chat.truncate(curConvId, k);
+}
+// 이 질문(지시) 아래에 아직 진행 중인 작업 카드가 있으면 수정·재시도로 지울 수 없다
+function busyAfter(el) {
+  return [...box.querySelectorAll('.card')].some(c => (el.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING) && c.querySelector('[data-act=stop]'));
+}
+// 다시 보낼 때 쓸 옵션: 처음 보낸 모드·경로(브라우저/개발)·탭 위치·첨부를 그대로
+function redoOpts(info) {
+  if (info.kind === 'sum') return { summarize: true };
+  return { mode: info.mode || 'ask', route: info.route, where: info.where, includePage: info.page, attachments: liveAtts(info) };
 }
 // 껐다 켠 뒤 다시 연 대화의 사진은 저장돼 있지 않아 다시 보낼 수 없다 → 빼고 알려 줌
 function liveAtts(info) {
@@ -310,15 +332,26 @@ function liveAtts(info) {
 function userBefore(aiEl) { let n = aiEl.previousElementSibling; while (n && !n.classList.contains('user')) n = n.previousElementSibling; return n; }
 box.addEventListener('click', async e => {
   const btn = e.target.closest('.msg-actions button'); if (!btn) return;
-  const msg = btn.closest('.msg'); const act = btn.dataset.act; const raw = msg._raw || '';
+  const msg = btn.closest('.msg') || btn.closest('.card'); if (!msg) return;
+  const act = btn.dataset.act; const raw = msg._raw || '';
   if (act === 'copy') { try { await api.copy(raw); toastIn(msg, '복사했습니다'); } catch (_) {} return; }
+  // 수정·재시도의 공통 처리: 질문(지시) 말풍선을 찾아 그 아래를 지우고 다시 보낸다
+  const redo = async (u, edit) => {
+    if (!u) return;
+    if (busyAfter(u)) { toastIn(msg, '진행 중인 작업이 있습니다. 끝나거나 중지한 뒤에 다시 시도해 주세요'); return; }
+    const info = u._info || {}, rawQ = u._raw || '';
+    if (!edit && info.kind === 'act' && !confirm('같은 지시를 다시 실행합니다.\n이전 실행이 이미 바꾼 것(파일 변경·전송·저장 등)은 되돌려지지 않습니다.\n\n계속할까요?')) return;
+    if (edit) { const at = liveAtts(info).slice(); await cutFrom(u); $('#input').value = rawQ; attachments = at; renderTray(); setMode(info.mode || 'ask'); if (info.where) $('#where').value = info.where; $('#input').focus(); return; }
+    await cutFrom(u);
+    sendMessage(info.kind === 'sum' ? '' : rawQ, redoOpts(info));
+  };
   if (msg.classList.contains('user')) {
-    if (act === 'edit') { const at = liveAtts(msg._info).slice(); await cutFrom(msg); $('#input').value = raw; attachments = at; renderTray(); setMode('ask'); $('#input').focus(); return; }
-    if (act === 'retry') { const info = msg._info; await cutFrom(msg); sendMessage(info.kind === 'sum' ? '' : raw, info.kind === 'sum' ? { summarize: true } : { includePage: info.page, attachments: liveAtts(info) }); return; }
+    if (act === 'edit') return redo(msg, true);
+    if (act === 'retry') return redo(msg, false);
     return;
   }
+  if (act === 'retry') return redo(userBefore(msg), false);
   const u = userBefore(msg);
-  if (act === 'retry') { if (!u) return; const info = u._info, rawQ = u._raw; await cutFrom(u); sendMessage(info.kind === 'sum' ? '' : rawQ, info.kind === 'sum' ? { summarize: true } : { includePage: info.page, attachments: liveAtts(info) }); return; }
   if (act === 'export') {
     const q = u ? u._raw : '';
     const r = await api.chat.exportText(`Jeeves_답변_${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}.md`, `# 질문\n\n${q}\n\n# 답변\n\n${raw}\n\n---\n${msg._meta || ''}\n`);
@@ -480,12 +513,51 @@ comp.addEventListener('drop', async e => { if (e.dataTransfer && e.dataTransfer.
 window.addEventListener('dragover', e => e.preventDefault());   // 창 아무 데나 놓아도 파일이 새 창으로 열리지 않게
 window.addEventListener('drop', e => e.preventDefault());
 
+// 작업(Work) 중 개발: 계획 카드 확인 → 개발 AI(Claude Code·Codex·기타) 실행
+async function runDev(text, atts, opts) {
+  if (!(cfg.dev && cfg.dev.folder)) { const f = await pickDevFolder(); if (!f) { $('#input').value = text; return; } }
+  const p = await api.dev.plan({ goal: text, infoGrade: chatGrade, folder: cfg.dev.folder, attachments: atts });
+  if (!p.ok || !p.chain || !p.chain.length) { addErr(p.error || '개발 계획을 만들지 못했습니다.'); $('#input').value = text; return; }
+  const ch = await askDevPlan(p);
+  if (ch.toBrowser) return runBrowser(text, atts, opts);   // 규칙이 잘못 가른 경우: 카드에서 브라우저 작업으로 바꿈
+  if (ch.cancel) { $('#input').value = text; return; }
+  addUser(text, `🛠 작업(Work) · 개발 · L${p.difficulty.level} ${p.difficulty.label} · 🔒${chatGrade}`, { kind: 'act', mode: 'act', route: 'dev', attachments: atts });
+  if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
+  const r = await api.dev.start({ goal: text, infoGrade: chatGrade, folder: p.folder, attachments: atts, engineId: ch.engineId || undefined, projectId: pendingProject || activeProject });
+  if (r.error) { addErr(r.error); return; }
+  ensureCard(r.id, { goal: text });
+}
+// 작업(Work) 중 브라우저 조작
+async function runBrowser(text, atts, opts) {
+  const where = opts.where || $('#where').value;
+  addUser(text, (where === 'current' ? '🤖 작업(Work) · 브라우저 · 지금 탭' : '🤖 작업(Work) · 브라우저 · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act', mode: 'act', route: 'browser', where, attachments: atts });
+  if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
+  const r = await api.agent.start(text, where, chatGrade, pendingProject || activeProject, atts);
+  if (r.error) { addErr(r.error); return; }
+  ensureCard(r.id, { goal: text });
+}
+// 안내 카드: 개발인지 브라우저 조작인지 규칙으로 가르지 못했을 때. 반환 'dev' | 'browser' | 'cancel'
+function askRoute() {
+  return new Promise(resolve => {
+    const card = document.createElement('div');
+    card.className = 'msg ai gradewarn';
+    card.innerHTML = '<b>🤖 어떤 방식으로 처리할까요?</b><br><small class="muted">지시 내용만으로는 구분이 어렵습니다. 한 번만 골라 주세요(규칙 판단이라 AI 비용은 들지 않습니다).</small><div class="gw-btns"></div>';
+    const row = card.querySelector('.gw-btns');
+    const mk = (label, cls, val) => { const b = document.createElement('button'); b.textContent = label; b.className = cls; b.onclick = () => { card.querySelectorAll('button').forEach(x => x.disabled = true); card.insertAdjacentHTML('beforeend', `<div class="muted small">선택: ${esc(label)}</div>`); resolve(val); }; row.appendChild(b); };
+    mk('🛠 개발 (프로젝트 폴더에서 Claude Code·Codex 등)', 'primary', 'dev');
+    mk('🌐 브라우저 작업 (사이트를 직접 조작)', 'ghost', 'browser');
+    mk('취소', 'ghost', 'cancel');
+    box.appendChild(card); scrollDown();
+  });
+}
+
 async function sendMessage(textOverride, opts = {}) {
   const text = (textOverride !== undefined ? textOverride : $('#input').value).trim();
   const isSummary = opts.summarize;
+  const m = opts.mode === 'dev' ? 'act' : (opts.mode || mode);   // 수정·재시도는 처음 보낸 모드 그대로
   const atts = isSummary ? [] : (opts.attachments !== undefined ? opts.attachments : attachments);   // 다시 보내기는 그때 첨부 그대로
   if (!text && !isSummary && !atts.length) return;
-  if (!text && (mode === 'act' || mode === 'dev') && !isSummary) { addErr('작업 내용을 입력해 주세요. 첨부만으로는 무엇을 시킬지 알 수 없습니다.'); return; }
+  if (!text && m === 'act' && !isSummary) { addErr('작업 내용을 입력해 주세요. 첨부만으로는 무엇을 시킬지 알 수 없습니다.'); return; }
   $('#input').value = '';
   const welcome = box.querySelector('.welcome');
   if (welcome) welcome.remove();
@@ -493,7 +565,7 @@ async function sendMessage(textOverride, opts = {}) {
   // 기밀·비밀로 보이는 말이 있는데 등급이 낮으면 보내기 전에 경고하고, 추천 등급을 고르면 그대로 진행한다(규칙 검사, 정확하지 않음)
   let gradeAck = false;
   const attText = atts.filter(a => a.kind === 'text').map(a => a.text).join('\n');
-  if ((text || attText) && mode !== 'idea') {
+  if ((text || attText) && m !== 'idea') {
     const d = await api.grade.suspect(text + '\n' + attText);
     if (d && d.grade && gradeRank(d.grade) > gradeRank(chatGrade)) {
       const ch = await askGrade(d, attText ? '입력한 내용·첨부한 글' : '입력한 내용');
@@ -502,47 +574,38 @@ async function sendMessage(textOverride, opts = {}) {
       gradeAck = true;
     }
   }
-  if (mode === 'idea' && !isSummary) {
+  if (m === 'idea' && !isSummary) {
     // 💡 아이디어: 일반 등급 경고 대신 "공개 정보만" 규칙으로 막고, 보낼 문장을 사용자가 고쳐서 확인한 뒤에만 보낸다
     const chk = await api.idea.check(text);
     if (!chk.ok) { addErr('💡 아이디어 모드로 보낼 수 없습니다.\n- ' + chk.reasons.join('\n- ') + (chk.hits.length ? '\n(걸린 말: ' + chk.hits.join(', ') + ')' : '')); $('#input').value = text; return; }
     const sendText = await askIdea(text);
     if (sendText === null) { $('#input').value = text; return; }
-    addUser(sendText, '💡 아이디어(Idea) · 🔒P · ExoLobe', { kind: 'chat', page: false, attachments: [] });
+    const ub = addUser(sendText, '💡 아이디어(Idea) · 🔒P · ExoLobe', { kind: 'chat', mode: 'idea', page: false, attachments: [] });
     const wait = document.createElement('div'); wait.className = 'msg ai typing'; box.appendChild(wait); scrollDown();
     $('#send').disabled = true;
     const r = await api.chat.send(sendText, { mode: 'idea', infoGrade: 'P', projectId: pendingProject || activeProject });
     wait.remove(); $('#send').disabled = false;
-    if (r.ok) { if (r.convId) { curConvId = r.convId; pendingProject = null; } addAI(r.text, r.meta || r.model, true); }
+    if (r.ok) { if (r.convId) { ub._info.convId = r.convId; pendingProject = null; } addAI(r.text, r.meta || r.model, true, true); }
     else { addErr(r.error || '답변을 받지 못했습니다.'); $('#input').value = sendText; }
     return;
   }
-  if (mode === 'dev' && !isSummary) {
-    if (!text) { addErr('개발할 내용을 입력해 주세요.'); return; }
-    if (!(cfg.dev && cfg.dev.folder)) { const f = await pickDevFolder(); if (!f) { $('#input').value = text; return; } }
-    const p = await api.dev.plan({ goal: text, infoGrade: chatGrade, folder: cfg.dev.folder, attachments: atts });
-    if (!p.ok || !p.chain || !p.chain.length) { addErr(p.error || '개발 계획을 만들지 못했습니다.'); $('#input').value = text; return; }
-    const ch = await askDevPlan(p);
-    if (ch.cancel) { $('#input').value = text; return; }
-    addUser(text, `🛠 개발(Dev) · L${p.difficulty.level} ${p.difficulty.label} · 🔒${chatGrade}`, { kind: 'act', attachments: atts });
-    if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
-    const r = await api.dev.start({ goal: text, infoGrade: chatGrade, folder: p.folder, attachments: atts, engineId: ch.engineId || undefined, projectId: pendingProject || activeProject });
-    if (r.error) { addErr(r.error); return; }
-    ensureCard(r.id, { goal: text });
-    return;
-  }
-  if (mode === 'act' && !isSummary) {
-    if (!text) { addErr('작업 내용을 입력해 주세요. 첨부만으로는 무엇을 시킬지 알 수 없습니다.'); return; }
-    const where = $('#where').value;
-    addUser(text, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act', attachments: atts });
-    if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
-    const r = await api.agent.start(text, where, chatGrade, pendingProject || activeProject, atts);
-    if (r.error) { addErr(r.error); return; }
-    ensureCard(r.id, { goal: text });
-    return;
+  if (m === 'act' && !isSummary) {
+    // 작업(Work) 하나로 통합: 개발인지 브라우저 조작인지는 규칙으로 가르고(AI·토큰 0), 애매하면 한 번만 묻는다
+    let route = opts.route;
+    if (!route) {
+      const rc = await api.dev.route(text);
+      route = rc && rc.route;
+      if (route !== 'dev' && route !== 'browser') {
+        const ch = await askRoute();
+        if (ch === 'cancel') { $('#input').value = text; return; }
+        route = ch;
+      }
+    }
+    if (route === 'dev') return runDev(text, atts, opts);
+    return runBrowser(text, atts, opts);
   }
   const usePage = opts.includePage !== undefined ? !!opts.includePage : $('#include-page').checked;
-  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : (usePage ? '💬 대화 · 페이지 포함' : '💬 대화')) + (activeSkill && !isSummary ? ` · 🧩/${activeSkill}` : '') + ` · 🔒${chatGrade}`, { kind: isSummary ? 'sum' : 'chat', page: usePage, attachments: atts });
+  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : (usePage ? '💬 대화 · 페이지 포함' : '💬 대화')) + (activeSkill && !isSummary ? ` · 🧩/${activeSkill}` : '') + ` · 🔒${chatGrade}`, { kind: isSummary ? 'sum' : 'chat', mode: 'ask', page: usePage, attachments: atts });
   if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
   const wait = document.createElement('div');
   wait.className = 'msg ai typing';
@@ -558,14 +621,14 @@ async function sendMessage(textOverride, opts = {}) {
     if (ch === 'act') {
       const goal = `구글에서 검색해서 확인하고 결과를 쉽게 정리해 줘: ${text}`;
       const where = $('#where').value;
-      addUser(goal, (where === 'current' ? '🤖 작업(Work) · 지금 탭' : '🤖 작업(Work) · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act' });
+      addUser(goal, (where === 'current' ? '🤖 작업(Work) · 브라우저 · 지금 탭' : '🤖 작업(Work) · 브라우저 · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act', mode: 'act', route: 'browser', where });
       const r = await api.agent.start(goal, where, chatGrade, pendingProject || activeProject);
       if (r.error) addErr(r.error); else ensureCard(r.id, { goal });
       return;
     }
     if (ch === 'cancel') { $('#input').value = text; return; }
     // 'ask': 그래도 질문 모드로 → 아는 범위에서만 답함
-    addUser(text, '💬 대화 · 🔒' + chatGrade, { kind: 'chat', page: false, attachments: atts });
+    addUser(text, '💬 대화 · 🔒' + chatGrade, { kind: 'chat', mode: 'ask', page: false, attachments: atts });
     const w2 = document.createElement('div'); w2.className = 'msg ai typing'; box.appendChild(w2); scrollDown();
     $('#send').disabled = true;
     const r2 = await api.chat.send(apiText, { ...chatOpts, liveAck: true });
@@ -647,9 +710,10 @@ function askDevPlan(p) {
       ${p.skipped.length ? `<details><summary class="muted">제외된 엔진 ${p.skipped.length}개</summary><small class="muted">${p.skipped.map(x => esc(x.label) + ': ' + esc(x.why)).join('<br>')}</small></details>` : ''}
       <div class="why">이 폴더 안에서만 파일을 만들고 고칩니다. 삭제·인터넷 전송·시스템 변경 명령은 막혀 있고 .env 같은 비밀 파일은 읽지 못합니다. 단, 개발 AI가 프로그램을 실행할 수 있으므로 <b>중요한 폴더는 미리 백업</b>하세요.</div>
       <div class="acts"><select class="dp-eng"><option value="">자동 (위 순서)</option>${p.chain.map(c => `<option value="${esc(c.id)}">${esc(c.label)} 먼저</option>`).join('')}</select>
-        <button class="primary" data-a="go">이대로 시작</button><button class="ghost" data-a="no">취소</button></div>`;
+        <button class="primary" data-a="go">이대로 시작</button><button class="ghost" data-a="web" title="이 지시는 개발이 아니라 사이트 조작입니다">브라우저 작업으로</button><button class="ghost" data-a="no">취소</button></div>`;
     box.appendChild(card); scrollDown();
     card.querySelector('[data-a=go]').onclick = () => { const v = card.querySelector('.dp-eng').value; card.remove(); resolve({ engineId: v }); };
+    card.querySelector('[data-a=web]').onclick = () => { card.remove(); resolve({ toBrowser: true }); };
     card.querySelector('[data-a=no]').onclick = () => { card.remove(); resolve({ cancel: true }); };
   });
 }
@@ -777,6 +841,7 @@ function onAgentEvent(ev) {
       const r = c.el.querySelector('.result');
       r.classList.remove('hidden');
       r.innerHTML = md(ev.summary) + (ev.dev ? devDoneStats(ev) : ev.engine === 'claude-code' ? `<div class="stats">구독 사용(Claude Code)${ev.retries ? ` · 한도 대기 후 재개 ${ev.retries}회` : ''}${ev.estUsd ? ` · 참고용 추정 $${ev.estUsd.toFixed(3)} (구독이라 실제 청구 아님)` : ''}</div>` : `<div class="stats">비용 약 ${(ev.costKrw || 0).toLocaleString()}원${ev.costUnknown ? ' 이상(단가 모르는 모델 포함)' : ''} · Claude ${ev.llmCalls || 0}회 · Jev ${ev.jevCalls || 0}회(행동 ${ev.jevActs || 0}) · 행동 ${ev.actions || 0}${ev.escalated ? ' · 상위 모델 사용' : ''}</div>`);
+      if (!c.el.querySelector('.msg-actions')) { c.el._raw = String(ev.summary || ''); c.el.appendChild(actBar([['copy', '복사', '결과 복사'], ['retry', '재시도', '같은 지시 다시 실행']])); }
       scrollDown(); notify(ev.success ? 'Jeeves: 작업 완료' : 'Jeeves: 작업 중단', ev.summary.slice(0, 100));
       break;
     }
@@ -1202,14 +1267,14 @@ const sbSave = () => { try { localStorage.setItem('jv-sidebar', JSON.stringify(s
 sbState.open = sbState.open || {};
 
 // 왼쪽 구역 접기/펴기: 기본은 모두 접힘, 가장 최근에 쓴 구역만 펼침. 사용자가 누른 것은 이번 실행 동안 기억한다.
-const SB_SECS = ['proj', 'chat', 'idea', 'work', 'dev'];
+const SB_SECS = ['proj', 'chat', 'idea', 'work'];
 const sbSecOpen = {};
 let sbLastSec = null;
 function sbLatestSec() {
   let best = { t: '', sec: null };
   const upd = (t, sec) => { if (t && String(t) > best.t) best = { t: String(t), sec }; };
   for (const c of sbData.convs) upd(c.updatedAt, c.projectId ? 'proj' : (c.kind === 'idea' ? 'idea' : 'chat'));
-  for (const w of sbData.works) upd(w.at, w.projectId ? 'proj' : (w.kind === 'dev' ? 'dev' : 'work'));
+  for (const w of sbData.works) upd(w.at, w.projectId ? 'proj' : 'work');
   return best.sec;
 }
 function applySbFold() {
@@ -1241,9 +1306,9 @@ function renderSidebar() {
   sb.classList.toggle('collapsed', !!sbState.hidden);
   const q = $('#sb-search').value.trim().toLowerCase();
   const convItem = (c, child) => `<div class="sb-item ${child ? 'child' : ''} ${c.id === curConvId ? 'on' : ''}" data-conv="${esc(c.id)}" title="${esc(c.title)}">${sbEdit && sbEdit.type === 'conv' && sbEdit.id === c.id ? `<input class="sb-edit" value="${esc(c.title)}">` : `<span class="t">${esc(c.title)}</span><button class="more" data-more="conv:${esc(c.id)}" title="더보기">⋯</button>`}</div>`;
-  const workItem = (w, child) => `<div class="sb-item ${child ? 'child' : ''} ${w.key === activeWorkKey ? 'on' : ''}" data-work="${esc(w.key)}" title="${esc(w.goal || w.title)}"><span class="t">${esc(String(w.title).replace(/^🛠\s*/, ''))}</span><span class="st">${w.running ? SB_ICO.run : w.success ? SB_ICO.ok : SB_ICO.no}</span>${w.running ? '' : `<button class="more" data-more="work:${esc(w.at)}" title="더보기">⋯</button>`}</div>`;
+  const workItem = (w, child) => `<div class="sb-item ${child ? 'child' : ''} ${w.key === activeWorkKey ? 'on' : ''}" data-work="${esc(w.key)}" title="${esc(w.goal || w.title)}"><span class="t">${w.kind === 'dev' ? '🛠 ' : '🤖 '}${esc(String(w.title).replace(/^🛠\s*/, ''))}</span><span class="st">${w.running ? SB_ICO.run : w.success ? SB_ICO.ok : SB_ICO.no}</span>${w.running ? '' : `<button class="more" data-more="work:${esc(w.at)}" title="더보기">⋯</button>`}</div>`;
   const convs = sbData.convs.filter(c => sbMatch(q, c.title)), allW = sbData.works.filter(w => sbMatch(q, w.title, w.goal));
-  const works = allW.filter(w => w.kind !== 'dev'), devs = allW.filter(w => w.kind === 'dev');
+  const works = allW;   // 개발도 작업(Work) 한 목록에 함께(항목 앞 아이콘으로 구분)
   let ph = sbNewProj ? '<div class="sb-item"><input class="sb-edit" id="sb-newproj-input" placeholder="프로젝트 이름"></div>' : '';
   for (const p of sbData.projects) {
     const pc = convs.filter(c => c.projectId === p.id), pw = allW.filter(w => w.projectId === p.id);
@@ -1254,11 +1319,10 @@ function renderSidebar() {
     if (open) ph += pc.map(c => convItem(c, true)).join('') + pw.map(w => workItem(w, true)).join('') + (!pc.length && !pw.length ? '<div class="sb-empty" style="margin-left:16px">비어 있음</div>' : '');
   }
   $('#sb-projects').innerHTML = ph || '<div class="sb-empty">＋를 눌러 프로젝트를 만드세요</div>';
-  const loose = convs.filter(c => !c.projectId), looseW = works.filter(w => !w.projectId), looseD = devs.filter(w => !w.projectId);
+  const loose = convs.filter(c => !c.projectId), looseW = works.filter(w => !w.projectId);
   const looseChat = loose.filter(c => c.kind !== 'idea'), looseIdea = loose.filter(c => c.kind === 'idea');
   $('#sb-chats').innerHTML = looseChat.length ? looseChat.map(c => convItem(c, false)).join('') : '<div class="sb-empty">대화가 없습니다</div>';
   $('#sb-ideas').innerHTML = looseIdea.length ? looseIdea.map(c => convItem(c, false)).join('') : '<div class="sb-empty">아이디어가 없습니다</div>';
-  $('#sb-devs').innerHTML = looseD.length ? looseD.map(w => workItem(w, false)).join('') : '<div class="sb-empty">개발 기록이 없습니다</div>';
   $('#sb-works').innerHTML = looseW.length ? looseW.map(w => workItem(w, false)).join('') : '<div class="sb-empty">작업 기록이 없습니다</div>';
   applySbFold();
   const inp = sb.querySelector('.sb-edit');
@@ -1314,12 +1378,13 @@ async function openConv(id) {
   const c = await api.sidebar.openConv(id);
   if (!c) { refreshSidebar(); return; }
   curConvId = c.id; activeProject = c.projectId || null; pendingProject = null; activeWorkKey = null;
-  showPanelView('chat'); setMode('ask');
+  const cm = c.kind === 'idea' ? 'idea' : 'ask';
+  showPanelView('chat'); setMode(cm);
   box.innerHTML = '';
   for (const t of c.turns) {
     const atts = (t.atts || []).map(a => a.kind === 'image' ? { kind: 'image', name: a.name, lost: true } : { kind: 'text', name: a.name, text: a.text || '' });
-    addUser(t.q, (t.kind === 'sum' ? '📄 요약' : (t.page ? '💬 대화 · 페이지 포함' : '💬 대화')) + ` · 🔒${t.grade}`, { kind: t.kind === 'sum' ? 'sum' : 'chat', page: !!t.page, attachments: atts });
-    if (t.err) addErr(t.err); else addAI(t.a, t.meta, true);
+    const ub = addUser(t.q, (cm === 'idea' ? '💡 아이디어(Idea)' : t.kind === 'sum' ? '📄 요약' : (t.page ? '💬 대화 · 페이지 포함' : '💬 대화')) + ` · 🔒${t.grade}`, { kind: t.kind === 'sum' ? 'sum' : 'chat', mode: cm, convId: cm === 'idea' ? c.id : undefined, page: !!t.page, attachments: atts });
+    if (t.err) addErr(t.err); else addAI(t.a, t.meta, true, cm === 'idea');
   }
   setChatGrade(c.gradeMax || 'I');
   attachments = []; renderTray(); scrollDown(); renderSidebar();
@@ -1333,10 +1398,10 @@ async function openWork(key) {
   if (!h) { refreshSidebar(); return; }
   await api.chat.reset();
   curConvId = null; pendingProject = null; activeProject = h.projectId || null; activeWorkKey = key;
-  showPanelView('chat'); setMode(h.engine === 'dev' ? 'dev' : 'act');
+  showPanelView('chat'); setMode('act');
   box.innerHTML = ''; attachments = []; renderTray();
   const isDev = h.engine === 'dev';
-  addUser(h.goal, (isDev ? '🛠 개발(Dev)' : '🤖 작업(Work)') + (h.level ? ` · L${h.level}` : '') + ` · 🔒${h.infoGrade || '?'} · ${new Date(h.at).toLocaleString('ko-KR')}`, { kind: 'act', attachments: (h.atts || []).map(n => ({ kind: 'text', name: n, text: '', lost: true })) });
+  addUser(h.goal, (isDev ? '🛠 작업(Work) · 개발' : '🤖 작업(Work) · 브라우저') + (h.level ? ` · L${h.level}` : '') + ` · 🔒${h.infoGrade || '?'} · ${new Date(h.at).toLocaleString('ko-KR')}`, { kind: 'act', mode: 'act', route: isDev ? 'dev' : 'browser', attachments: (h.atts || []).map(n => ({ kind: 'text', name: n, text: '', lost: true })) });
   const id = 'h' + h.at, lg = h.log || { created: {}, steps: [] };
   const c0 = lg.created || {};
   onAgentEvent({ taskId: id, type: 'created', goal: h.goal, title: h.title, dev: isDev, devInfo: c0.devInfo });

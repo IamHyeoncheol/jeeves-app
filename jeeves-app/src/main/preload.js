@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('jeeves', {
     onEvent: fn => on('agent:event', fn)
   },
   dev: {
+    route: goal => ipcRenderer.invoke('dev:route', goal),
     plan: a => ipcRenderer.invoke('dev:plan', a),
     start: a => ipcRenderer.invoke('dev:start', a),
     pickFolder: () => ipcRenderer.invoke('dev:pick-folder'),

@@ -126,7 +126,7 @@ button.pill.on { background: var(--accent); color: var(--accent-ink); border-col
 #composer-opts { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 #composer-opts .spacer { flex: 1; }
 #composer-opts select { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); padding: 2px 4px; }
-body:not(.mode-act) .act-only, body:not(.mode-ask) .ask-only, body:not(.mode-dev) .dev-only { display: none; }
+body:not(.mode-act) .act-only, body:not(.mode-ask) .ask-only { display: none; }
 .devplan { margin: 8px 0; line-height: 1.55; font-size: 13px; }
 .devplan .acts { margin-top: 8px; align-items: center; }
 .devplan select { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); padding: 3px 4px; }
@@ -255,7 +255,7 @@ body.resizing #web-area::after { content: '크기 조절 중…'; position: abso
 
 /* 메시지 동작 단추 */
 .msg-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; opacity: .55; }
-.msg:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
+.msg:hover .msg-actions, .card:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
 .msg-actions button { border: 1px solid var(--line); background: var(--bg); color: var(--ink-2); border-radius: 12px; font-size: 11.5px; padding: 1px 8px; cursor: pointer; }
 .msg-actions button:hover { border-color: var(--accent); color: var(--accent); }
 .msg-actions button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }

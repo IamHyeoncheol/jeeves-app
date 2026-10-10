@@ -1,7 +1,7 @@
 // 개발 모드 시험: 난이도 판정, 엔진 선택, 폴더 검사, 명령 만들기, 한도 시 엔진 전환(가짜 AI 사용)
 const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path');
-const { analyzeDifficulty, buildEngines, DevRouter } = require('../src/dev/dev-router');
+const { analyzeDifficulty, buildEngines, DevRouter, classifyRoute } = require('../src/dev/dev-router');
 const { checkFolder, buildCommand, CLAUDE_ALLOW, CLAUDE_DENY } = require('../src/main/dev-engine');
 const { runChain } = require('../src/main/dev-chain');
 const { DEFAULTS } = require('../src/main/config');
@@ -19,6 +19,18 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'jv-dev-'));
     assert.strictEqual(analyzeDifficulty('로그 함수 하나 추가해줘').level, 1);
     assert.ok(analyzeDifficulty('스크립트 만들어줘').level >= 2);
     assert.ok(analyzeDifficulty('앱 만들어줘', { hasImages: true }).reasons.some(r => /시안/.test(r)));
+  });
+
+  await t('작업 통합 라우팅: 개발 신호만 → dev, 사이트 조작 신호만 → browser, 둘 다·둘 다 없음 → ask', () => {
+    const r = g => classifyRoute(g).route;
+    assert.strictEqual(r('하루 일정을 시간 블록으로 짜는 플래너 앱을 만들어줘'), 'dev');
+    assert.strictEqual(r('D:\\proj 폴더의 index.html 에서 버튼 색을 고쳐줘'), 'dev');
+    assert.strictEqual(r('네이버에서 가양역 근처 회의실 대여 3곳 찾아서 가격 비교'), 'browser');
+    assert.strictEqual(r('기업마당에서 전기안전 지원사업 공고 정리해 줘'), 'browser');
+    assert.strictEqual(r('구글에서 검색해서 앱 만들어줘'), 'ask');
+    assert.strictEqual(r('로그인 버그를 고쳐줘 코드는 login.js'), 'ask');
+    assert.strictEqual(r('이거 좀 알아서 해줘'), 'ask');
+    assert.strictEqual(r(''), 'ask');
   });
 
   const cfgWith = (over) => { const c = clone(DEFAULTS); Object.assign(c.dev, over || {}); return c; };
