@@ -74,9 +74,9 @@ function runTeam(o) {
   const before = snapshotDir(folder);
   const info = text => emit({ taskId: id, type: 'info', text });
 
-  const stage = (title, chain, stageGoal, lv) => new Promise(resolve => {
+  const stage = (title, chain, stageGoal, lv, verify = false) => new Promise(resolve => {   // verify: 구현 단계만 "실제로 바뀐 파일이 있는가"를 코드로 확인
     cur = runChain({
-      ...base, goal: stageGoal, chain, level: lv,
+      ...base, goal: stageGoal, chain, level: lv, verify,
       emit: ev => {
         if (ev.type === 'done') { usd += ev.estUsd || 0; if (ev.subscription === false) subscription = false; for (const c of ev.chain || []) attempts.push({ label: c.label, ok: c.ok, kind: c.kind }); resolve(ev); }
         else if (ev.type === 'start') info(`▶ ${title} — ${ev.engineLabel}`);
@@ -133,14 +133,14 @@ function runTeam(o) {
         for (let k = 0; k < 2 && !(r && r.success); k++) {
           const js = planFor(t.level, 'junior'); if (!js.length) break;
           info(`🔧 작업 ${i + 1}/${tasks.length} “${t.title}” → 주니어${k ? ' (재시도)' : ''}`);
-          r = await stage(`작업 ${i + 1}`, js, prompt, t.level); by = r.engineLabel;
+          r = await stage(`작업 ${i + 1}`, js, prompt, t.level, true); by = r.engineLabel;
           if (r.kind === 'stopped' || stopNow()) return finish(false, '사용자가 작업을 중지했습니다.', { kind: 'stopped' });
         }
         if (r && !r.success) info(`↗ 작업 ${i + 1} 은 주니어가 끝내지 못해 시니어에게 올립니다`);
       }
       if (!r || !r.success) {
         info(`🔧 작업 ${i + 1}/${tasks.length} “${t.title}” → 시니어`);
-        r = await stage(`작업 ${i + 1}`, planFor(Math.max(t.level, 2), 'senior'), prompt, t.level); by = r.engineLabel;
+        r = await stage(`작업 ${i + 1}`, planFor(Math.max(t.level, 2), 'senior'), prompt, t.level, true); by = r.engineLabel;
         if (stopNow()) return finish(false, '사용자가 작업을 중지했습니다.', { kind: 'stopped' });
       }
       results.push({ id: t.id, title: t.title, ok: !!r.success, by });

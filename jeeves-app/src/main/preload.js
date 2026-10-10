@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('jeeves', {
   },
   dev: {
     route: goal => ipcRenderer.invoke('dev:route', goal),
+    autoRoute: text => ipcRenderer.invoke('dev:auto-route', text),
     plan: a => ipcRenderer.invoke('dev:plan', a),
     start: a => ipcRenderer.invoke('dev:start', a),
     pickFolder: () => ipcRenderer.invoke('dev:pick-folder'),

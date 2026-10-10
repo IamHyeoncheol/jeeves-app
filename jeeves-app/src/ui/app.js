@@ -239,14 +239,15 @@ function setMode(m) {
   if (m === 'dev') m = 'act';   // 개발은 작업(Work)에 통합: 지시 내용을 보고 지브스가 나눈다
   mode = m;
   document.body.classList.toggle('mode-ask', m === 'ask');
+  document.body.classList.toggle('mode-auto', m === 'auto');
   document.body.classList.toggle('mode-act', m === 'act');
   document.body.classList.toggle('mode-dev', m === 'dev');
   document.body.classList.toggle('mode-idea', m === 'idea');
   $$('#mode button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
-  $('#input').placeholder = m === 'idea' ? '💡 공개해도 되는 주제만 짧게 적어 주세요. 회사 이름·금액·고객 정보는 쓰지 마세요. 예) 수산물 건조 과정을 빠르게 하는 다른 분야의 원리' : m === 'ask' ? (activeSkill && skillHints[activeSkill] ? skillHints[activeSkill] : '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)') : '시킬 일을 구체적으로 적어 주세요. 사이트 조작이면 브라우저가, 개발이면 개발 AI가 맡습니다. 예) 네이버에서 가양역 근처 회의실 3곳 가격 비교 / 하루 일정을 시간 블록으로 짜는 플래너 앱을 만들어줘';
+  $('#input').placeholder = m === 'idea' ? '💡 공개해도 되는 주제만 짧게 적어 주세요. 회사 이름·금액·고객 정보는 쓰지 마세요. 예) 수산물 건조 과정을 빠르게 하는 다른 분야의 원리' : m === 'auto' ? '무엇이든 적어 주세요. 질문은 대화로, 시키는 일은 작업(개발·브라우저)으로 지브스가 규칙으로 나눕니다. 애매하면 대화로만 답하고 "작업으로 실행" 단추를 보여 드립니다.' : m === 'ask' ? (activeSkill && skillHints[activeSkill] ? skillHints[activeSkill] : '무엇이든 물어보세요 (Enter 보내기, Shift+Enter 줄바꿈)') : '시킬 일을 구체적으로 적어 주세요. 사이트 조작이면 브라우저가, 개발이면 개발 AI가 맡습니다. 예) 네이버에서 가양역 근처 회의실 3곳 가격 비교 / 하루 일정을 시간 블록으로 짜는 플래너 앱을 만들어줘';
 }
 $$('#mode button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
-setMode('ask');
+setMode('auto');
 
 // ── 메시지 ────────────────────────────────────────────
 const box = $('#messages');
@@ -521,7 +522,7 @@ async function runDev(text, atts, opts) {
   const ch = await askDevPlan(p);
   if (ch.toBrowser) return runBrowser(text, atts, opts);   // 규칙이 잘못 가른 경우: 카드에서 브라우저 작업으로 바꿈
   if (ch.cancel) { $('#input').value = text; return; }
-  addUser(text, `🛠 작업(Work) · 개발 · L${p.difficulty.level} ${p.difficulty.label}${p.volume ? ' · 분량 ' + p.volume.label : ''} · 🔒${chatGrade}`, { kind: 'act', mode: 'act', route: 'dev', attachments: atts });
+  addUser(text, `🛠 작업(Work) · 개발 · L${p.difficulty.level} ${p.difficulty.label}${p.volume ? ' · 분량 ' + p.volume.label : ''} · 🔒${chatGrade}${opts.autoTag || ''}`, { kind: 'act', mode: 'act', route: 'dev', attachments: atts });
   if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
   const r = await api.dev.start({ goal: text, infoGrade: chatGrade, folder: p.folder, attachments: atts, engineId: ch.engineId || undefined, projectId: pendingProject || activeProject });
   if (r.error) { addErr(r.error); return; }
@@ -530,7 +531,7 @@ async function runDev(text, atts, opts) {
 // 작업(Work) 중 브라우저 조작
 async function runBrowser(text, atts, opts) {
   const where = opts.where || $('#where').value;
-  addUser(text, (where === 'current' ? '🤖 작업(Work) · 브라우저 · 지금 탭' : '🤖 작업(Work) · 브라우저 · 백그라운드 탭') + ` · 🔒${chatGrade}`, { kind: 'act', mode: 'act', route: 'browser', where, attachments: atts });
+  addUser(text, (where === 'current' ? '🤖 작업(Work) · 브라우저 · 지금 탭' : '🤖 작업(Work) · 브라우저 · 백그라운드 탭') + ` · 🔒${chatGrade}` + (opts.autoTag || ''), { kind: 'act', mode: 'act', route: 'browser', where, attachments: atts });
   if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
   const r = await api.agent.start(text, where, chatGrade, pendingProject || activeProject, atts);
   if (r.error) { addErr(r.error); return; }
@@ -551,10 +552,22 @@ function askRoute() {
   });
 }
 
+// "기본(자동)"에서 애매해 대화로만 답했을 때: 실제로 실행하고 싶으면 한 번 눌러 작업으로 보낸다(파일 변경·실행은 이때만 일어남)
+function showWorkHint(text, why) {
+  const card = document.createElement('div');
+  card.className = 'msg ai gradewarn';
+  card.innerHTML = `<b>🤖 자동 분류: 💬 대화로만 답했습니다</b><br><small class="muted">${esc(why || '작업인지 분명하지 않음')}. 파일 변경·실행은 하지 않았습니다. 실제로 실행하려면 아래 단추를 눌러 주세요.</small><div class="gw-btns"></div>`;
+  const b = document.createElement('button'); b.className = 'primary'; b.textContent = '🛠 작업으로 실행';
+  b.onclick = () => { card.querySelectorAll('button').forEach(x => x.disabled = true); sendMessage(text, { mode: 'act' }); };
+  card.querySelector('.gw-btns').appendChild(b);
+  box.appendChild(card); scrollDown();
+}
+
 async function sendMessage(textOverride, opts = {}) {
   const text = (textOverride !== undefined ? textOverride : $('#input').value).trim();
   const isSummary = opts.summarize;
-  const m = opts.mode === 'dev' ? 'act' : (opts.mode || mode);   // 수정·재시도는 처음 보낸 모드 그대로
+  const m0 = opts.mode === 'dev' ? 'act' : (opts.mode || mode);   // 수정·재시도는 처음 보낸 모드 그대로
+  let m = m0, autoInfo = null;
   const atts = isSummary ? [] : (opts.attachments !== undefined ? opts.attachments : attachments);   // 다시 보내기는 그때 첨부 그대로
   if (!text && !isSummary && !atts.length) return;
   if (!text && m === 'act' && !isSummary) { addErr('작업 내용을 입력해 주세요. 첨부만으로는 무엇을 시킬지 알 수 없습니다.'); return; }
@@ -573,6 +586,13 @@ async function sendMessage(textOverride, opts = {}) {
       if (ch === 'raise') setChatGrade(d.grade);
       gradeAck = true;
     }
+  }
+  // ✨ 기본(자동): 규칙으로 대화/작업을 가른다(AI·토큰 0). 확실한 작업 지시만 작업으로 보내고, 애매하면 대화로만 답한다(파일 변경·실행 없음).
+  if (m0 === 'auto' && !isSummary) {
+    autoInfo = (await api.dev.autoRoute(text)) || { mode: 'chat', confidence: 'high', reasons: [] };
+    const why = (autoInfo.reasons && autoInfo.reasons[0]) || '';
+    if (autoInfo.mode === 'work') { m = 'act'; opts = { ...opts, route: autoInfo.route, autoTag: ` · 🤖 자동(${why})` }; }
+    else { m = 'ask'; opts = { ...opts, autoTag: ` · 🤖 자동(${why})` }; }
   }
   if (m === 'idea' && !isSummary) {
     // 💡 아이디어: 일반 등급 경고 대신 "공개 정보만" 규칙으로 막고, 보낼 문장을 사용자가 고쳐서 확인한 뒤에만 보낸다
@@ -605,7 +625,7 @@ async function sendMessage(textOverride, opts = {}) {
     return runBrowser(text, atts, opts);
   }
   const usePage = opts.includePage !== undefined ? !!opts.includePage : $('#include-page').checked;
-  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : (usePage ? '💬 대화 · 페이지 포함' : '💬 대화')) + (activeSkill && !isSummary ? ` · 🧩/${activeSkill}` : '') + ` · 🔒${chatGrade}`, { kind: isSummary ? 'sum' : 'chat', mode: 'ask', page: usePage, attachments: atts });
+  addUser(isSummary ? '이 페이지를 요약해 주세요.' : text, (isSummary ? '📄 요약' : (usePage ? '💬 대화 · 페이지 포함' : '💬 대화')) + (activeSkill && !isSummary ? ` · 🧩/${activeSkill}` : '') + ` · 🔒${chatGrade}` + (opts.autoTag || ''), { kind: isSummary ? 'sum' : 'chat', mode: 'ask', page: usePage, attachments: atts });
   if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
   const wait = document.createElement('div');
   wait.className = 'msg ai typing';
@@ -660,6 +680,7 @@ async function sendMessage(textOverride, opts = {}) {
   $('#send').disabled = false;
   if (res.convId) { curConvId = res.convId; pendingProject = null; }   // 실패해도 질문은 대화로 저장됨
   if (res.ok) addAI(res.text, res.meta || res.model, true); else addErr(res.error);
+  if (res.ok && autoInfo && autoInfo.confidence === 'low') showWorkHint(text, (autoInfo.reasons || [])[0]);
 }
 $('#send').onclick = () => sendMessage();
 $('#input').addEventListener('keydown', e => {
@@ -734,6 +755,7 @@ function devDoneStats(ev) {
   if (ev.teamTasks && ev.teamTasks.length) h += `<br>작업별: ${ev.teamTasks.map(t => `${t.id}.${esc(t.title)} ${t.ok ? '✓' : '✗'}(${esc((t.by || '').replace('주니어 · ', '주니어 '))})`).join(' · ')}`;
   if (c) h += `<br>폴더 변경: 새 파일 ${c.added.length}개${c.added.length ? ' (' + list(c.added, 6) + ')' : ''} · 수정 ${c.modified.length}개${c.modified.length ? ' (' + list(c.modified, 6) + ')' : ''} · 삭제 ${c.removed.length}개${c.removed.length ? ' (' + list(c.removed, 6) + ')' : ''}${c.truncated ? ' · 파일이 많아 일부만 비교' : ''}`;
   if (ev.denied && ev.denied.length) h += `<br>막힌 요청(허용 목록 밖): ${ev.denied.map(esc).join(' / ')}`;
+  if (ev.verified === false && ev.verifyNote) h += `<br>🔎 미검증: ${esc(ev.verifyNote)}`;
   return h + '</div>';
 }
 
@@ -850,7 +872,7 @@ function onAgentEvent(ev) {
       c.slot.innerHTML = '';
       const b = c.el.querySelector('.badge');
       b.className = 'badge ' + (ev.success ? 'ok' : 'fail');
-      b.textContent = ev.success ? '완료' : '중단';
+      b.textContent = ev.success ? (ev.dev && ev.verified === false ? '완료(미검증)' : '완료') : '중단';
       const sb = c.el.querySelector('[data-act=stop]'); if (sb) sb.remove();
       // 마지막 생각 메모가 최종 결과와 같으면 한 번만 보여 준다
       if (c.lastSay && c.lastSay.text && (ev.summary || '').trim() === c.lastSay.text) c.lastSay.el.remove();
@@ -1400,7 +1422,7 @@ async function newChat(projectId) {
   setChatGrade((cfg && cfg.infoGrade) || 'I');
   attachments = []; renderTray();
   box.innerHTML = welcomeHTML; $('#input').value = '';
-  showPanelView('chat'); setMode('ask'); $('#input').focus();
+  showPanelView('chat'); setMode('auto'); $('#input').focus();
   renderSidebar();
 }
 async function openConv(id) {

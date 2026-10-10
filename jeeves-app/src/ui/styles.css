@@ -126,7 +126,7 @@ button.pill.on { background: var(--accent); color: var(--accent-ink); border-col
 #composer-opts { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 #composer-opts .spacer { flex: 1; }
 #composer-opts select { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); padding: 2px 4px; }
-body:not(.mode-act) .act-only, body:not(.mode-ask) .ask-only { display: none; }
+body:not(.mode-act):not(.mode-auto) .act-only, body:not(.mode-ask):not(.mode-auto) .ask-only { display: none; }   /* 기본(자동)에서는 대화·작업 옵션을 모두 보여 준다 */
 .devplan { margin: 8px 0; line-height: 1.55; font-size: 13px; }
 .devplan .acts { margin-top: 8px; align-items: center; }
 .devplan select { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); padding: 3px 4px; }

@@ -55,10 +55,14 @@ const RISK = [
   [/(알고리즘|algorithm|파싱|parser|성능|최적화|optimi)/i, '알고리즘·성능'], [/(리팩|refactor|마이그레이션|migrat)/i, '대규모 정리'],
   [/(버그|오류|에러|디버그|안\s*됨|안돼|안 돼|bug|fix|error|crash)/i, '원인 추적이 필요한 수정'], [/(연동|외부\s*서비스|통합|integrat|api\s*키)/i, '외부 연동']
 ];
+// 파일·폴더를 옮기거나 지우는 일: 주니어에게는 이동 도구가 없고 프로젝트 폴더 밖은 만질 수 없다 → 시니어가 맡는다(애매하면 시니어)
+const FS_OP_RE = /(이동|옮겨|옮기|옮길|옮겼|\bmove\b|\bmv\b|삭제|지워|지우|제거|\bdelete\b|\bremove\b|이름\s*바)/i;
+const FS_WORD_RE = /(폴더|파일|디렉터리|디렉토리|\bfolders?\b|\bfiles?\b|\bdir\b|[A-Za-z]:\\)/i;
 function juniorSafe(goal, diff) {
   const s = String(goal || '');
   if (diff && diff.level > 2) return { ok: false, why: `난이도 L${diff.level} — 주니어 한도(L2) 초과` };
   const hit = RISK.filter(([re]) => re.test(s)).map(([, w]) => w);
+  if (FS_OP_RE.test(s) && FS_WORD_RE.test(s)) hit.push('파일·폴더 이동·삭제');
   if (hit.length) return { ok: false, why: '품질에 영향이 클 수 있는 영역(' + hit.slice(0, 3).join('·') + ')이라 시니어가 직접 처리' };
   return { ok: true, why: '' };
 }

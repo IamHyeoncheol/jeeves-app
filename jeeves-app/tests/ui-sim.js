@@ -3,7 +3,7 @@
 const { JSDOM } = require('jsdom');
 const fs = require('fs'), path = require('path');
 const root = process.argv[2];
-const { classifyRoute } = require(path.join(root, 'src/dev/dev-router.js'));
+const { resolveRoute, classifyInput } = require(path.join(root, 'src/dev/auto-route.js'));   // 메인 프로세스와 같은 규칙(dev:route·dev:auto-route)
 const html = fs.readFileSync(path.join(root, 'src/ui/index.html'), 'utf8').replace(/<script src="app.js"><\/script>/, '');
 const js = fs.readFileSync(path.join(root, 'src/ui/app.js'), 'utf8');
 const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true, url: 'http://localhost/' });
@@ -23,7 +23,8 @@ function mk(pathArr) {
       const key = pathArr.join('.');
       if (/\.on[A-Z]/.test(key) || /^on[A-Z]/.test(key)) { if (key === 'agent.onEvent') agentHandler = args[0]; return () => {}; }
       calls.push({ key, args });
-      if (key === 'dev.route') return Promise.resolve(classifyRoute(args[0]));
+      if (key === 'dev.route') return Promise.resolve(resolveRoute(args[0]));
+      if (key === 'dev.autoRoute') return Promise.resolve(classifyInput(args[0]));
       if (key === 'chat.send') return Promise.resolve({ ok: true, text: '답변입니다', meta: 'm', convId: 'c' + calls.length });
       if (key in dflt) return Promise.resolve(JSON.parse(JSON.stringify(dflt[key])));
       return Promise.resolve({});
@@ -96,8 +97,8 @@ const click = (el, act) => { el.querySelector(`.msg-actions [data-act=${act}]`).
   ok(n('agent.start') === 3 && bubbles().pop()._info.route === 'browser', '선택한 방식(브라우저)으로 실행');
   agentHandler({ taskId: 't', type: 'done', success: true, summary: 'ok' }); await tick();
   // 5) 개발 계획 카드에서 브라우저로 바꾸기
-  await send('앱 화면을 열어서 클릭해 줘 코드', 'act');
-  // (둘 다 신호 → 방식 카드)
+  await send('구글 로그인 화면 코드 확인', 'act');
+  // (개발·브라우저 신호가 둘 다 있고 마지막 행동 낱말로도 못 가림 → 방식 카드)
   let rc2 = $$('.gradewarn').pop(); [...rc2.querySelectorAll('button')].find(b => /개발/.test(b.textContent)).click(); await tick();
   $('.devplan [data-a=web]').click(); await tick();
   ok(n('agent.start') === 4, '계획 카드 "브라우저 작업으로" → 브라우저 실행');
@@ -134,6 +135,35 @@ const click = (el, act) => { el.querySelector(`.msg-actions [data-act=${act}]`).
   // 7) 사이드바에 개발 구역 없음
   ok(!$('#sb-devs') && $('#sb-works'), '사이드바: 개발 구역 통합');
   ok(!$('#mode [data-mode=dev]'), '모드 단추: 개발 단추 제거');
+  // 8) ✨ 기본(자동): 규칙으로 대화/작업을 가르고, 애매하면 대화로만 답한다
+  ok($$('#mode button')[0].dataset.mode === 'auto', '모드 단추: 기본(자동)이 맨 앞');
+  w.document.querySelector('#mode [data-mode=auto]').click();
+  ok(w.document.body.classList.contains('mode-auto') && $('#mode [data-mode=auto]').classList.contains('on') && $('#where') && $('#include-page'), '기본(자동) 선택: 대화·작업 옵션을 모두 보여 줌(CSS 규칙 포함)');
+  const hints = () => $$('.gradewarn').filter(x => /작업으로 실행/.test(x.textContent)).length;
+  const cs0 = n('chat.send'), ds0 = n('dev.plan'), as0 = n('agent.start'), h0 = hints();
+  $('#input').value = '전기안전관리법이 뭐야?'; $('#send').click(); await tick();
+  let ua = bubbles().pop();
+  ok(n('chat.send') === cs0 + 1 && n('dev.plan') === ds0 && n('agent.start') === as0 && ua._info.mode === 'ask' && /자동/.test(ua.querySelector('.tag').textContent) && hints() === h0, '자동: 질문 → 대화로 전송(작업 아님), 말풍선에 자동 분류 표시, 실행 카드 없음');
+  $('#input').value = '하루 일정을 시간 블록으로 짜는 플래너 앱을 만들어줘'; $('#send').click(); await tick();
+  ok(n('dev.plan') === ds0 + 1 && $('.devplan [data-a=go]'), '자동: 확실한 개발 지시 → 개발 계획 카드(방식 질문 없음)');
+  $('.devplan [data-a=go]').click(); await tick();
+  ua = bubbles().pop();
+  ok(ua._info.route === 'dev' && /개발/.test(ua.querySelector('.tag').textContent) && /자동/.test(ua.querySelector('.tag').textContent), '자동: 개발 말풍선에 자동 분류 표시');
+  agentHandler({ taskId: 't', type: 'done', success: true, summary: '앱을 만들었습니다', dev: true, engineLabel: 'Claude Code', chain: [{ label: 'Claude Code', ok: true }], level: 2, changes: { added: [], modified: [], removed: [] }, denied: [], verified: false, verifyNote: '폴더 안 변경 확인 못 함' }); await tick();
+  ok(/완료\(미검증\)/.test(w.document.body.textContent) && /미검증: 폴더 안 변경 확인 못 함/.test(w.document.body.textContent), '완료 카드: 검증 못 한 결과는 "완료(미검증)"과 이유 표시');
+  const ag0 = n('agent.start');
+  $('#input').value = '네이버에서 가양역 근처 회의실 3곳 찾아서 가격 비교해줘'; $('#send').click(); await tick();
+  ok(n('agent.start') === ag0 + 1 && bubbles().pop()._info.route === 'browser', '자동: 확실한 사이트 조작 지시 → 브라우저 작업');
+  agentHandler({ taskId: 't', type: 'done', success: true, summary: 'ok' }); await tick();
+  const cs1 = n('chat.send'), ag1 = n('agent.start'), ds1 = n('dev.plan'), h1 = hints();
+  $('#input').value = '네이버 회의실 가격'; $('#send').click(); await tick();
+  ok(n('chat.send') === cs1 + 1 && n('agent.start') === ag1 && n('dev.plan') === ds1 && hints() === h1 + 1, '자동: 애매하면 대화로만 답하고 "작업으로 실행" 카드 표시(실행 없음)');
+  const hint = $$('.gradewarn').filter(x => /작업으로 실행/.test(x.textContent)).pop();
+  [...hint.querySelectorAll('button')].find(b => /작업으로 실행/.test(b.textContent)).click(); await tick();
+  ok(n('agent.start') === ag1 + 1 && bubbles().pop()._info.mode === 'act', '"작업으로 실행" 단추 → 그때서야 작업 실행');
+  agentHandler({ taskId: 't', type: 'done', success: true, summary: 'ok' }); await tick();
+  $('#reset-chat').click(); await tick();
+  ok(w.document.body.classList.contains('mode-auto'), '새 대화는 기본(자동)으로 시작');
   ok(errs.length === 0, '스크립트 오류 없음: ' + errs.join(' | '));
   console.log(`sim: ${pass} 통과 / ${fail} 실패`);
   process.exit(fail ? 1 : 0);

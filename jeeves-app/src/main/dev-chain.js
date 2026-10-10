@@ -4,10 +4,11 @@ const { DevTask, snapshotDir, diffSnap } = require('./dev-engine');
 const H = require('./handoff');
 const { ApiCoderTask } = require('./api-coder');
 const { REST_MS } = require('../dev/dev-router');
+const { verifyResult, hasChanges } = require('../dev/verify');
 
 const KIND_TXT = { limit: '사용 한도', login: '로그인 필요', missing: '실행 불가', task: '작업 실패', error: '오류' };
 
-function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, level, TaskClass = DevTask, timeoutMs, router, grade, krwPerUsd, ApiClass = ApiCoderTask, handoff = true, onAttempt }) {
+function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, level, TaskClass = DevTask, timeoutMs, router, grade, krwPerUsd, ApiClass = ApiCoderTask, handoff = true, onAttempt, verify = true }) {
   const attempts = [];
   let current = null, finished = false, escalated = false, totalUsd = 0, lastTests = null, lastRef = null, ckN = 0;
   const baseSnap = handoff ? snapshotDir(folder) : null;      // 이 작업을 시작할 때의 폴더 모양(누적 변경 계산용)
@@ -16,7 +17,7 @@ function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, lev
     if (finished) return; finished = true;
     if (handoff) H.releaseLock(folder, id);
     emit({ taskId: id, type: 'done', success, summary, dev: true, engine: 'dev', engineLabel: last ? last.engineLabel : '', level,
-      chain: attempts.map(a => ({ label: a.engineLabel, ok: a.success, kind: a.kind })), changes: last ? last.changes : null, denied: last ? last.denied : [], estUsd: totalUsd, subscription: attempts.every(a => a.subscription !== false), lastKind: last ? last.kind : undefined, resumeAt: last ? last.resumeAt : undefined, ...(extra || {}) });
+      chain: attempts.map(a => ({ label: a.engineLabel, ok: a.success, kind: a.kind })), changes: last ? last.changes : null, denied: last ? last.denied : [], estUsd: totalUsd, subscription: attempts.every(a => a.subscription !== false), lastKind: last ? last.kind : undefined, resumeAt: last ? last.resumeAt : undefined, verified: last ? last.verified : undefined, verifyNote: last ? last.verifyNote : undefined, ...(extra || {}) });
   };
   const launch = engine => {
     devRouter.used(engine.id);
@@ -50,8 +51,25 @@ function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, lev
     H.appendLedger(folder, { task: id, engine: r.engineLabel, kind: r.success ? 'ok' : r.kind, level, changed: changed.length, tests: tests && tests.ran ? (tests.ok ? 'pass' : 'fail') : null, badSyntax: badSyntax.length, usd: r.estUsd || 0 });
     return { badSyntax, tests };
   };
-  const onFinished = (engine, r) => {
+  // 끝났다는 보고를 믿기 전에 코드로 확인한다(글로 쓴 도구 호출 문장·변경 없음). 실패로 뒤집히면 규칙에 따라 더 강한 엔진으로 올라간다.
+  const verifyAttempt = (engine, r) => {
+    if (!verify || !r.success) return r;
+    let probe = r;
+    if (baseSnap && r.changes != null && !hasChanges(r.changes)) { try { probe = { ...r, changes: diffSnap(baseSnap, snapshotDir(folder)) }; } catch (_) {} }   // 엔진이 "변경 없음"이라 보고했을 때만, 앞선 엔진이 이미 바꾼 것까지 합쳐서 본다(변경 정보를 아예 안 준 엔진은 판단하지 않음)
+    const v = verifyResult({ goal, result: probe, engine });
+    if (v.level === 'fail') {
+      emit({ taskId: id, type: 'info', text: `🔎 검증 실패 — ${engine.label}: ${v.reasons.join(' / ')}` });
+      return { ...r, success: false, kind: 'task', verified: false, summary: `[검증 실패] ${v.reasons.join(' / ')}\n${r.summary || ''}`.slice(0, 2000) };
+    }
+    if (v.level === 'warn') {
+      emit({ taskId: id, type: 'info', text: `🔎 미검증 — ${engine.label}: ${v.reasons.join(' / ')}` });
+      return { ...r, verified: false, verifyNote: v.reasons.join(' / ') };
+    }
+    return { ...r, verified: true };
+  };
+  const onFinished = (engine, r0) => {
     current = null;
+    const r = verifyAttempt(engine, r0);
     attempts.push(r); totalUsd += r.estUsd || 0;
     if (onAttempt) { try { onAttempt(engine, r); } catch (_) {} }   // 여유 기록(한도에 닿은 시각 등)
     if (!handoff) return proceed(engine, r);

@@ -6,6 +6,7 @@ const { EventEmitter } = require('events');
 const fs = require('fs');
 const path = require('path');
 const { snapshotDir, diffSnap, splitArgs } = require('./dev-engine');
+const { looksLikeToolCallText } = require('../dev/verify');
 
 const SYSTEM = `당신은 Jeeves(지브스)의 개발 "주니어 엔진"입니다. 지브스가 정해 준 프로젝트 폴더 안에서만, 제공된 도구로 일합니다.
 - 먼저 list_files 로 폴더 상태를 확인하세요. 이미 있는 파일은 다시 만들지 말고 read_file 로 보고 이어서 하세요.
@@ -159,6 +160,15 @@ class ApiCoderTask extends EventEmitter {
       messages.push({ role: 'assistant', content: res.content });
       const calls = res.content.filter(b => b.type === 'tool_use');
       if (!calls.length) {
+        // 글로 쓴 도구 호출 문장({"name":"write_file",...})은 실행된 것이 아니다 → 성공으로 받지 않는다(작은 로컬 모델에서 자주 생김).
+        // 한 번은 바로잡을 기회를 주고, 또 그러면 실패(task)로 끝내 상위 엔진으로 넘긴다.
+        if (looksLikeToolCallText(say)) {
+          this.fakeCalls = (this.fakeCalls || 0) + 1;
+          this.log('info', { text: `⚠ ${engine.label}: 도구를 실제로 호출하지 않고 호출 문장만 글로 출력했습니다(실행 안 됨, ${this.fakeCalls}번째)` });
+          if (this.fakeCalls >= 2) return this.finish(false, `${engine.label} 는 도구를 실제로 호출하지 못하고 호출 문장만 글로 출력했습니다(실행되지 않음). 더 강한 엔진으로 넘깁니다.`, 'task');
+          messages.push({ role: 'user', content: [{ type: 'text', text: '방금 답은 도구 호출 "문장"일 뿐 실행되지 않았습니다. 글로 JSON 을 쓰지 말고, 도구 호출 기능으로 직접 호출하세요.' }] });
+          continue;
+        }
         // 도구를 안 부르고 글로만 답함: 파일을 하나라도 만들었으면 그 글을 보고로 받아들이고, 아니면 실패로 보고 상위 엔진에 넘긴다
         if (this.wrote) return this.finish(true, say || '(보고 없음)', 'ok');
         if (step === 0 || !this.nudged) { this.nudged = true; messages.push({ role: 'user', content: [{ type: 'text', text: '도구를 사용해 실제로 파일을 만들거나 고쳐 주세요. 끝났다면 done 을 호출하세요.' }] }); continue; }
@@ -169,6 +179,7 @@ class ApiCoderTask extends EventEmitter {
         if (c.name === 'done') {
           const inp = c.input || {};
           const ok = inp.success !== false;
+          if (ok && looksLikeToolCallText(inp.summary)) { results.push({ type: 'tool_result', tool_use_id: c.id, is_error: true, content: [{ type: 'text', text: '보고(summary)에 도구 호출 문장이 들어 있습니다. 한국어로 결과를 보고하세요.' }] }); continue; }
           if (ok && !this.wrote) { results.push({ type: 'tool_result', tool_use_id: c.id, is_error: true, content: [{ type: 'text', text: '파일을 하나도 만들거나 고치지 않았습니다. 실제 작업 후에 done 을 호출하세요.' }] }); continue; }
           return this.finish(ok, String(inp.summary || '(보고 없음)'), ok ? 'ok' : 'task');
         }
