@@ -14,3 +14,5 @@ secrets*
 # 임시
 *.lock
 Thumbs.db
+# 시작 때 자동 업데이트 기록
+jeeves-app/update-log.txt
