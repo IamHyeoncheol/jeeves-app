@@ -376,6 +376,7 @@ async function chatSend({ text, includePage, mode, infoGrade, lowerOk, gradeAck,
       const prompt = (hist ? `[이전 대화]\n${hist}\n\n` : '') + [...imgNote, ...blocks.filter(b => b.type === 'text').map(b => b.text)].join('\n\n');
       try {
         const out = await runClaudeChat({ bin, model, system, prompt, workDir: path.join(app.getPath('userData'), 'claude-work'), web: gradeRank(grade) <= gradeRank('I'), readScope: imgs.length ? 'jeeves-attach' : '' });   // 웹 검색·읽기는 P·I 등급에서만(읽기 전용)
+        if (policy) policy.cost({ kind: 'subscription', source: 'chat', role, engine: 'claude-code', model: model || '', usd: typeof out.costUsd === 'number' ? out.costUsd : null, billed: false, ...pol() });   // 구독 대화도 장부에(추정치)
         return done(out.text.trim(), `Claude Code 구독 · ${model || '기본'}`, null);
       } catch (e) {
         if (e.kind === 'limit') subRestUntil = e.resumeAt ? new Date(e.resumeAt).getTime() : Date.now() + 30 * 60e3;   // 한도가 풀릴 때까지 구독은 건너뜀

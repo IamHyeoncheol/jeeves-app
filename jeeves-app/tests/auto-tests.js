@@ -60,6 +60,16 @@ const c = g => classifyInput(g);
     assert.ok(pickTab('x').reason.length > 0);
   });
 
+  await t('0.49.1 실기 보완: "버튼 눌러·결제·주문"은 브라우저 작업, "버튼 색 바꿔"는 개발, 질문은 대화', () => {
+    const c = x => { const r = classifyInput(x); return r.mode === 'work' ? r.route : r.mode; };
+    assert.strictEqual(c('쇼핑몰에서 결제하기 버튼 눌러 줘'), 'browser');
+    assert.strictEqual(c('네이버에서 로그인 버튼 눌러줘'), 'browser');
+    assert.strictEqual(c('쿠팡에서 마스크 주문해 줘'), 'browser');
+    assert.strictEqual(c('이 버튼 색 바꿔 줘'), 'dev');
+    assert.strictEqual(c('결제 기능 추가해줘'), 'dev');
+    assert.strictEqual(c('결제가 뭐야?'), 'chat');
+  });
+
   let fail = 0;
   for (const [ok, name, err] of results) { if (!ok) fail++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : '  → ' + err}`); }
   console.log(`\nauto-tests: ${results.length - fail}/${results.length} 통과`);

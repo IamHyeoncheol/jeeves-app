@@ -125,7 +125,7 @@
   // 왼쪽 아래(맞춤설정·스킬 옆)에 "자동 위임" 단추
   const foot = document.getElementById('sb-foot');
   if (foot) {
-    const b = el('button', { type: 'button', id: 'sb-policy', title: '묻지 않고 자동으로 처리할 범위(위임 규칙)와 오늘 비용을 봅니다' }, '<svg class="ico" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>자동 위임');
+    const b = el('button', { type: 'button', id: 'sb-policy', title: '묻지 않고 자동으로 처리할 범위(위임 규칙)와 오늘 비용을 봅니다' }, '<svg class="ico" viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>위임');
     b.onclick = open; foot.appendChild(b);
   }
   window.jeevesPolicyUi = { open, refresh };

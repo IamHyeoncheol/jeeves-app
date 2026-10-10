@@ -413,3 +413,4 @@ body.panel-narrow.layout-web #panel > * { display: none; }
 .pm-acts label { font-weight: 400; }
 .pm-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .pm-row .cu-f { flex: 1 1 120px; }
+#sb-foot button { white-space: nowrap; min-width: 0; padding: 6px 2px; }   /* 단추 3개(맞춤설정·스킬·위임)가 두 줄로 꺾이지 않게 */
