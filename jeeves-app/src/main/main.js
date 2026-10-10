@@ -42,6 +42,7 @@ let historyFile;
 app.setName('Jeeves');
 if (process.env.JEEVES_USER_DATA) app.setPath('userData', process.env.JEEVES_USER_DATA); // 테스트용 별도 저장 공간
 if (!app.requestSingleInstanceLock()) app.quit();
+if (process.platform === 'win32') app.setAppUserModelId('kr.jeeves.app');   // 작업 표시줄이 electron.exe 의 기본 아이콘 대신 지브스 창 아이콘을 쓰고, 바탕화면 바로가기와 같은 그룹으로 묶이게 함
 // Windows 가 다른 창에 가려진 창을 '안 보임'으로 판단해 백그라운드 탭을 멈추는 기능 끄기 (에이전트 탭이 계속 일하도록)
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -90,7 +91,7 @@ function createWindow() {
     width: 1500, height: 940, minWidth: 980, minHeight: 600,
     title: 'Jeeves (테스트 버전)',
     backgroundColor: '#f6f5f2',
-    icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
+    icon: path.join(__dirname, '..', '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),   // 바탕화면 바로가기와 같은 파일(icon.ico)
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: false, nodeIntegration: false }
   });
