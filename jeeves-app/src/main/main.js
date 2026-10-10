@@ -1,5 +1,5 @@
 // Jeeves(가칭) — 메인 프로세스: 창, 탭, AI 대화, 에이전트 작업을 연결한다.
-const { app, BrowserWindow, ipcMain, session, safeStorage, net, Menu, dialog, clipboard, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, session, safeStorage, net, Menu, dialog, clipboard, shell, nativeImage, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { ConfigStore, parseKeyFile } = require('./config');
@@ -22,10 +22,18 @@ let _skills = null;
 const getSkills = () => _skills || (_skills = new SkillStore(path.join(app.getPath('userData'), 'skills')));
 const { ideaCheck, frame: ideaFrame, withBanner: ideaBanner, structure: ideaStructure } = require('./idea');
 const { setWebChatHost } = require('../models/webchat');
+const { PolicyEngine } = require('../policy/engine');
+const { AuditLog } = require('../policy/audit');
+const { CostLedger } = require('../policy/ledger');
+const { KillSwitch } = require('../policy/kill-switch');
+const { DelegationStore } = require('../policy/delegation');
 const { needsLiveInfo, GRADES, GRADE_INFO, gradeRank, engineGradeOk, engineMaxGrade, suspectDetail, recommendFor } = require('../models/recommend');
 
 const PARTITION = 'persist:jeeves-main'; // 로그인 상태가 유지되는 브라우저 저장 공간
 let win, tabs, config, router, mcp = null, mcpError = null;
+let policy = null, killSwitch = null, delegation = null;   // 정책 엔진(위험 판정·위임 규칙·감사·비용 장부·비상 정지)
+const HALT_MSG = '비상 정지 중입니다. 위쪽 붉은 띠의 "재개" 버튼을 누른 뒤 다시 시도해 주세요.';
+const pol = () => { const c = config.get().policy || {}; return { org: c.org || 'default', user: c.user || 'owner' }; };
 const pending = new Map(); // 사용자 확인·답변 대기 (키: 작업 id 또는 'ext')
 let extCard = { id: null, last: 0 }, extSeq = 0;
 const tasks = new Map();
@@ -157,7 +165,7 @@ ipcMain.handle('tabs:thumb', (_, { id, width }) => tabs.thumbnail(id || tabs.act
 
 // ── 설정 IPC ──────────────────────────────────────────
 ipcMain.handle('config:get', () => config.getPublic());
-ipcMain.handle('config:update', (_, patch) => { const c = config.update(patch); router.clearCooldown(); send('config:update', c); return c; });   // 설정을 저장하면(키 추가·충전 후 등) 쉬는 중 표시도 풀어 다시 시도
+ipcMain.handle('config:update', (_, patch) => { const c = config.update(patch); router.clearCooldown(); if (patch && patch.policy && killSwitch) registerHaltShortcut(); send('config:update', c); return c; });   // 설정을 저장하면(키 추가·충전 후 등) 쉬는 중 표시도 풀어 다시 시도
 ipcMain.handle('router:status', () => router.status());
 ipcMain.handle('config:test', async (_, role) => {
   try { return await router.testRole(role); } catch (e) { return { ok: false, error: e.message }; }
@@ -483,7 +491,9 @@ async function startMcp() {
     tabs, router, getConfig: () => config.get(),
     activity: ev => send('agent:event', { taskId: extKey(), tabId: mcp && mcp.tabId, ...ev, who: ev.who || 'ext' }),
     approve: info => waitUser(extKey(), 'confirm', info),
-    ask: question => waitUser(extKey(), 'ask', { question })
+    ask: question => waitUser(extKey(), 'ask', { question }),
+    policy, halt: (source, reason) => killSwitch ? killSwitch.halt({ source, reason }) : null,
+    ctxInfo: () => ({ taskId: ccRunning || extCard.id || 'ext', ...pol() })
   });
   try { await mcp.start({ port: m.port, token: m.token, internalToken: internalMcpToken }); mcpError = null; }
   catch (e) { mcpError = e.code === 'EADDRINUSE' ? `포트 ${m.port} 가 이미 사용 중` : e.message; mcp = null; }
@@ -508,11 +518,12 @@ ipcMain.handle('cc:check', async (_, custom) => {
 // ── 에이전트 작업 ──────────────────────────────────────
 // Jeeves 내장 에이전트 실행(API·무료 공급자). 구독 엔진이 한도에 걸렸을 때의 자동 전환에도 쓴다.
 function launchBuiltin(id, goal, tab, grade, all, title, extra) {   // extra: { images, shown(화면·기록에 보일 목표), atts(첨부 이름) }
+  if (killSwitch && killSwitch.halted) { send('agent:event', { taskId: id, type: 'done', success: false, summary: '비상 정지 중이라 시작하지 않았습니다.' }); return; }   // 구독 한도 → 내장 엔진 자동 전환 경로 포함
   const cfg = all.agent, rate = all.ui.krwPerUsd || 1400;
   const recent = (gradeRank(grade) < gradeRank(chatGradeMax) ? [] : chatHistory).slice(-6).map(m => `${m.role === 'user' ? '사용자' : 'AI'}: ${m.content.map(b => b.text).join(' ').slice(0, 300)}`);
   const task = new AgentTask({
-    id, goal, goalLabel: extra && extra.shown, images: extra && extra.images, driver: new PageDriver(tab.view.webContents), router, krwPerUsd: rate,
-    settings: {
+    id, goal, goalLabel: extra && extra.shown, images: extra && extra.images, driver: new PageDriver(tab.view.webContents), router, krwPerUsd: rate, policy,
+    settings: { ...pol(),
       maxSteps: cfg.maxSteps, confirmMode: cfg.confirmMode, screenshotMode: cfg.screenshotMode,
       mode: cfg.mode === 'auto' ? 'hybrid' : cfg.mode, escalate: cfg.escalate, jevConfidence: cfg.jevConfidence,
       budgetUsd: cfg.budgetKrw > 0 ? cfg.budgetKrw / rate : null,
@@ -524,8 +535,10 @@ function launchBuiltin(id, goal, tab, grade, all, title, extra) {   // extra: { 
   task.tabId = tab.id;
   tasks.set(id, task);
   task.on('event', ev => send('agent:event', { ...ev, tabId: tab.id }));
+  if (policy) policy.event({ kind: 'task-start', taskId: id, source: 'agent', engine: 'builtin', goal: (extra && extra.shown) || goal, ...pol() });
   task.run().then(result => {
     const r = result || {};
+    if (policy) policy.event({ kind: 'task-end', taskId: id, source: 'agent', engine: 'builtin', ok: !!r.success, ...pol() });
     saveTaskHistory({ id, title, goal: (extra && extra.shown) || goal, atts: extra && extra.atts, infoGrade: grade, at: new Date().toISOString(), success: !!r.success, summary: r.summary || '',
       costKrw: r.costKrw, costUsd: r.costUsd, costUnknown: r.costUnknown, llmCalls: r.llmCalls, jevCalls: r.jevCalls, jevActs: r.jevActs, escalated: r.escalated,
       steps: task.steps.filter(s => s.type === 'action').map(s => (s.who === 'jev' ? '⚡ ' : '') + s.desc) });
@@ -533,6 +546,7 @@ function launchBuiltin(id, goal, tab, grade, all, title, extra) {   // extra: { 
 }
 
 ipcMain.handle('agent:start', async (_, { goal, where, infoGrade, projectId, attachments }) => {
+  if (killSwitch && killSwitch.halted) return { error: HALT_MSG };
   const all = config.get();
   let engine = all.engine.type;
   const grade = pickGrade(infoGrade);
@@ -602,6 +616,10 @@ ipcMain.handle('agent:start', async (_, { goal, where, infoGrade, projectId, att
       if (ccRunning === id) ccRunning = null;
       if (attDir) { try { fs.rmSync(attDir, { recursive: true, force: true }); } catch (_) {} }
       saveTaskHistory({ id, title, goal, atts: attNames, infoGrade: grade, at: new Date().toISOString(), success: !!r.success, summary: r.summary || '', engine: 'claude-code', estUsd: r.estUsd, retries: r.retries });
+      if (policy) {   // 구독 사용량은 실과금이 아니라 Claude Code 가 보고한 추정치(billed:false)
+        policy.cost({ kind: 'subscription', taskId: id, source: 'cc', engine: 'claude-code', usd: typeof r.estUsd === 'number' ? r.estUsd : null, billed: false, ...pol() });
+        policy.event({ kind: 'task-end', taskId: id, source: 'cc', engine: 'claude-code', ok: !!r.success, ...pol() });
+      }
     });
     task.start();
     return { id, tabId: tab.id, engine };
@@ -730,6 +748,10 @@ function waitTime(job, ev) {
   return Math.max(at, Date.now() + 60000);
 }
 function endJob(job, id, ev) {
+  if (policy && devRuns.has(id)) {
+    policy.cost({ kind: 'subscription', taskId: id, source: 'dev', engine: ev.engineLabel || 'dev', usd: typeof ev.estUsd === 'number' ? ev.estUsd : null, billed: false, ...pol() });
+    policy.event({ kind: 'task-end', taskId: id, source: 'dev', engine: ev.engineLabel || 'dev', ok: !!ev.success, ...pol() });
+  }
   devRuns.delete(id); devJobs.delete(job.jid); saveJobs();
   const t = devTimers.get(job.jid); if (t) { clearTimeout(t); devTimers.delete(job.jid); }
   if (job.attDir) { try { fs.rmSync(job.attDir, { recursive: true, force: true }); } catch (_) {} }
@@ -743,13 +765,27 @@ function enterWait(job, id, at) {
   const old = devTimers.get(job.jid); if (old) clearTimeout(old);
   devTimers.set(job.jid, setTimeout(() => { devTimers.delete(job.jid); resumeJob(job, id).catch(e => { logErr('개발 작업 재개', e); endJob(job, id, { ...cancelEv(job, id), summary: '재개하지 못했습니다: ' + e.message }); }); }, Math.max(1000, at - Date.now())));
   const stop = () => endJob(job, id, cancelEv(job, id));
-  devRuns.set(id, { stop, folder: job.folder });
+  devRuns.set(id, { stop, folder: job.folder, waitingJid: job.jid });
   tasks.set(id, { stop, respond: () => {} });
+}
+// 비상 정지로 보류된 예약 작업(재개 버튼을 누르면 다시 예약). 보관소(jeeves-dev-pending.json)에는 그대로 남는다.
+const heldJobs = new Map();   // jid → { job, id }
+function holdJob(job, id) {
+  const t = devTimers.get(job.jid); if (t) { clearTimeout(t); devTimers.delete(job.jid); }
+  devRuns.delete(id); tasks.delete(id);
+  heldJobs.set(job.jid, { job, id });
+  send('agent:event', { taskId: id, type: 'info', text: '비상 정지로 예약된 재개를 보류했습니다. 정지를 풀면 다시 예약합니다.' });
+}
+function releaseHeldJobs() {
+  for (const { job, id } of [...heldJobs.values()]) { heldJobs.delete(job.jid); if (devJobs.has(job.jid)) enterWait(job, id, Math.max(job.resumeAt || 0, Date.now() + 60000)); }
 }
 async function resumeJob(job, id) {
   if (!devJobs.has(job.jid)) return;
+  if (killSwitch && killSwitch.halted) return holdJob(job, id);   // 정지 중에는 지우지 않고 보류 → 재개하면 다시 예약
   job.resumes = (job.resumes || 0) + 1; job.state = 'running'; saveJobs();
   const p = await devPlan({ goal: job.goal, infoGrade: job.grade, folder: job.folder, attachments: [], hint: { volume: job.volume } });   // 그 사이 달라진 여유로 엔진을 다시 고른다
+  if (!devJobs.has(job.jid) || heldJobs.has(job.jid) || job.state !== 'running') return;   // 계획을 세우는 사이 취소·보류됨(정지 후 곧바로 재개한 경우 재예약 쪽이 이어 감)
+  if (killSwitch && killSwitch.halted) { job.state = 'waiting'; job.resumeAt = Date.now(); saveJobs(); return holdJob(job, id); }
   if (!p.ok) return endJob(job, id, { ...cancelEv(job, id), summary: p.error });
   if (!p._chain.length) {
     if (p.waiting && job.resumes < 6) return enterWait(job, id, Math.max(p.waiting.resumeAt, Date.now()) + 60000);
@@ -780,8 +816,10 @@ const jobCardInfo = (job, p) => ({ level: job.level, label: p ? p.difficulty.lab
 
 ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, engineId, projectId, create }) => {
   goal = String(goal || '').trim();
+  if (killSwitch && killSwitch.halted) return { error: HALT_MSG };
   if (!goal) return { error: '개발할 내용을 입력해 주세요.' };
   const p = await devPlan({ goal, infoGrade, folder, attachments, engineId, create });
+  if (killSwitch && killSwitch.halted) return { error: HALT_MSG };   // 계획을 세우는 사이 비상 정지됨
   if (!p.ok) return { error: p.error || '작업 폴더를 정하지 못했습니다.' };
   if (p.create) { try { fs.mkdirSync(p.folder, { recursive: true }); } catch (e) { return { error: '새 폴더를 만들지 못했습니다: ' + e.message }; } }
   const autoRes = config.get().dev.autoResume !== false;
@@ -814,7 +852,9 @@ ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, en
 // 앱을 다시 켠 뒤: 보관소에 남은 작업을 화면에 되살린다(대기 중이던 것·중간에 꺼진 것)
 let devRestored = false;
 ipcMain.handle('dev:pending', async () => {
-  if (devRestored) return { restored: 0 }; devRestored = true;
+  if (devRestored) return { restored: 0 };
+  if (killSwitch && killSwitch.halted) return { restored: 0, halted: true };   // 정지 중에는 복원하지 않는다(재개 후 다시 부르면 복원)
+  devRestored = true;
   const auto = config.get().dev.resumeOnStart !== 'ask';
   let n = 0;
   for (const job of [...devJobs.values()]) {
@@ -862,6 +902,7 @@ app.whenReady().then(async () => {
   devCap = new DevCapacity(path.join(userData, 'jeeves-dev-usage.json'));
   devJobsFile = path.join(userData, 'jeeves-dev-pending.json'); loadJobs();
   router = new ModelRouter(() => config.get(), (url, opts) => net.fetch(url, opts));
+  setupPolicy(userData);
   // 웹 로그인형 공급자: 로그인이 유지되는 지브스 브라우저 탭 하나를 전용으로 쓰고, 질문마다 새 대화 화면으로 시작한다
   let wcTabId = null;
   setWebChatHost(async p => {
@@ -881,6 +922,45 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('will-quit', () => { try { convs && convs.flush(); } catch (_) {} if (mcp) mcp.stop(); for (const t of tasks.values()) { try { t.stop(); } catch (_) {} } });
+// ── 정책 엔진(사양서 01): 위험 판정·위임 규칙·감사 기록·비용 장부·비상 정지 ──
+function setupPolicy(userData) {
+  const audit = new AuditLog({ dir: path.join(userData, 'audit') });
+  const ledger = new CostLedger({ dir: path.join(userData, 'ledger'), krwPerUsd: () => config.get().ui.krwPerUsd || 1400 });
+  delegation = new DelegationStore({ file: path.join(userData, 'policy-rules.json') });
+  killSwitch = new KillSwitch();
+  audit.onError = e => logErr('감사 기록 쓰기', e); ledger.onError = e => logErr('비용 장부 쓰기', e); delegation.onError = e => logErr('위임 규칙 파일', e);
+  policy = new PolicyEngine({ audit, ledger, killSwitch, delegation, opts: () => ({ trashLevel: (config.get().policy || {}).trashLevel }) });
+  router.onRecord = rec => ledger.append({ ...pol(), ...rec, org: rec.org || pol().org, user: rec.user || pol().user });
+  // 정지 함수: ① 예약 재개 대기 중인 개발 작업은 지우지 않고 보류 ② 진행 중인 모든 작업(브라우저·구독·개발) 중지 ③ 모든 승인·질문 대기 해제
+  killSwitch.register('dev-hold', () => { for (const [id, r] of [...devRuns]) { if (r.waitingJid && devJobs.has(r.waitingJid)) holdJob(devJobs.get(r.waitingJid), id); } });
+  killSwitch.register('tasks', () => { for (const t of [...tasks.values()]) { try { t.stop(); } catch (_) {} } });
+  killSwitch.register('pending', () => { for (const fn of [...pending.values()]) { try { fn({ cancelled: true, ok: false, text: '(비상 정지)' }); } catch (_) {} } });
+  killSwitch.register('dev-ask', () => { for (const [id, p] of [...devPendingAsk]) { devPendingAsk.delete(id); try { p.discard(); } catch (_) {} } });
+  killSwitch.on('halt', st => { policy.event({ kind: 'halt', source: st.source, count: st.stopped.length, message: st.reason, ...pol() }); send('policy:state', killSwitch.state()); });
+  killSwitch.on('resume', () => { policy.event({ kind: 'resume', source: 'ui', ...pol() }); send('policy:state', killSwitch.state()); });
+  registerHaltShortcut();
+}
+let haltKey = null;
+function registerHaltShortcut() {
+  const key = (config.get().policy || {}).haltShortcut || 'CommandOrControl+Shift+F12';
+  if (haltKey === key) return { ok: true, key };
+  try { if (haltKey) globalShortcut.unregister(haltKey); } catch (_) {}
+  let ok = false;
+  try { ok = globalShortcut.register(key, () => { killSwitch.halt({ source: 'shortcut', reason: '단축키' }); }); } catch (_) { ok = false; }
+  haltKey = ok ? key : null;
+  if (!ok) { policy.event({ kind: 'shortcut-fail', source: 'system', message: key, ...pol() }); send('router:notice', `비상 정지 단축키(${key})를 등록하지 못했습니다(다른 프로그램이 사용 중일 수 있음). 화면 위쪽 "■ 비상 정지" 버튼을 쓰세요.`); }
+  return { ok, key };
+}
+ipcMain.handle('policy:state', () => ({ ...(killSwitch ? killSwitch.state() : { halted: false }), shortcut: haltKey }));
+ipcMain.handle('policy:halt', (_, reason) => killSwitch.halt({ source: 'ui', reason: reason || '화면 버튼' }));
+ipcMain.handle('policy:resume', () => { const ok = killSwitch.resume({ source: 'ui' }); if (ok) { devRestored = false; releaseHeldJobs(); } return ok; });   // 재개하면 정지 중 미뤄 둔 개발 작업 복원을 다시 허용
+ipcMain.handle('policy:rules', () => delegation.list());
+ipcMain.handle('policy:rule-add', (_, spec) => { const r = delegation.add(spec, { source: 'ui' }); if (r.ok) policy.event({ kind: 'rule-add', source: 'ui', ruleId: r.rule.id, level: r.rule.maxLevel, message: r.rule.note, ...pol() }); return r; });
+ipcMain.handle('policy:rule-update', (_, { id, patch }) => { const r = delegation.update(id, patch || {}, { source: 'ui' }); if (r.ok) policy.event({ kind: 'rule-change', source: 'ui', ruleId: id, ...pol() }); return r; });
+ipcMain.handle('policy:rule-remove', (_, id) => { const r = delegation.remove(id); if (r.ok) policy.event({ kind: 'rule-remove', source: 'ui', ruleId: id, ...pol() }); return r; });
+ipcMain.handle('policy:shortcut', () => registerHaltShortcut());
+ipcMain.handle('ledger:summary', (_, period) => policy ? policy.ledger.summary({ period: period === 'month' ? 'month' : 'today', org: pol().org }) : null);
+
+app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch (_) {} try { convs && convs.flush(); } catch (_) {} if (mcp) mcp.stop(); for (const t of tasks.values()) { try { t.stop(); } catch (_) {} } });
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.on('window-all-closed', () => app.quit());

@@ -73,6 +73,17 @@ contextBridge.exposeInMainWorld('jeeves', {
     capacity: () => ipcRenderer.invoke('dev:capacity')
   },
   usage: () => ipcRenderer.invoke('usage:get'),
+  policy: {   // 정책 엔진: 비상 정지·재개(재개는 이 화면에서만), 자동 위임 규칙, 비용 장부 요약
+    state: () => ipcRenderer.invoke('policy:state'),
+    halt: reason => ipcRenderer.invoke('policy:halt', reason),
+    resume: () => ipcRenderer.invoke('policy:resume'),
+    onState: fn => on('policy:state', fn),
+    rules: () => ipcRenderer.invoke('policy:rules'),
+    addRule: spec => ipcRenderer.invoke('policy:rule-add', spec),
+    updateRule: (id, patch) => ipcRenderer.invoke('policy:rule-update', { id, patch }),
+    removeRule: id => ipcRenderer.invoke('policy:rule-remove', id),
+    ledger: period => ipcRenderer.invoke('ledger:summary', period)
+  },
   grade: { suspect: text => ipcRenderer.invoke('grade:suspect', String(text || '')) },
   mcp: {
     status: () => ipcRenderer.invoke('mcp:status'),

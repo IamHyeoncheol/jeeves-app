@@ -26,11 +26,12 @@ function world(over = {}) {
     setTimeout: (f, ms) => { const t = { f, ms }; w.timers.push(t); return t; }, clearTimeout: t => { if (t) t.dead = true; },
     devPlan: async () => ({ ok: true, folder: dir, grade: 'I', difficulty: { level: 3, label: '어려움', reasons: [] }, volume: { value: 3, label: '큼' }, chain: w.planChain, _chain: w.planChain, _bins: {}, waiting: w.waiting, error: w.planChain.length ? undefined : '맡길 AI 없음', _atts: [], empty: false }),
     runChain: o => { const beh = w.runBehavior.shift() || { success: true }; w.runs.push(o); setImmediate(() => { if (beh.limit) { o.onAttempt({ family: 'claude', id: 'claude-sonnet' }, { success: false, kind: 'limit', resumeAt: w.now + 2 * 3600000 }); w.cap.record({ family: 'claude', kind: 'limit', resumeAt: w.now + 2 * 3600000 }); o.emit({ taskId: o.id, type: 'done', success: false, summary: '한도', lastKind: 'limit', resumeAt: w.now + 2 * 3600000, dev: true, level: 3, chain: [], changes: null, denied: [] }); } else o.emit({ taskId: o.id, type: 'done', success: true, summary: '완료', dev: true, level: 3, chain: [], changes: null, denied: [] }); }); return { stop() { w.stopped = true; } }; },
-    runTeam: () => { throw new Error('팀 실행 안 함'), 0; }
+    runTeam: () => { throw new Error('팀 실행 안 함'), 0; },
+    policy: null, killSwitch: over.killSwitch || null, HALT_MSG: '비상 정지 중', pol: () => ({ org: 'default', user: 'owner' })
   };
   const names = Object.keys(env);
   // taskSeq 는 let 이어야 하므로 감싸서 쓴다
-  const fn = new Function(...names, 'let taskSeq = 0;\n' + block + '\nreturn { devJobs, devLive, saveJobs, loadJobs, setFile: f => { devJobsFile = f; }, resumeJob, endJob, enterWait, devTimers, devPendingAsk };');
+  const fn = new Function(...names, 'let taskSeq = 0;\n' + block + '\nreturn { devJobs, devLive, saveJobs, loadJobs, setFile: f => { devJobsFile = f; }, resumeJob, endJob, enterWait, devTimers, devPendingAsk, releaseHeldJobs, heldJobs };');
   const api = fn(...names.map(n => env[n]));
   api.setFile(path.join(dir, 'pending.json'));
   w.api = api; w.dir = dir; w.devRuns = devRuns; w.tasks = tasks;
@@ -123,6 +124,24 @@ const types = w => w.events.map(e => e.type);
     const pend = w4.events.find(e => e.type === 'pending'); assert.ok(pend); assert.strictEqual(w4.runs.length, 0);
     await w4.handlers['dev:pending-act'](null, { taskId: pend.taskId, act: 'discard' }); await flush();
     assert.ok(w4.events.some(e => e.type === 'done' && /취소/.test(e.summary))); assert.strictEqual(w4.api.devJobs.size, 0);
+  });
+
+  await t('비상 정지: 정지 중에는 새 개발 작업 거부, 예약된 재개는 실행하지 않고 보류(보관소에 남음) → 정지를 풀면 다시 예약', async () => {
+    const ks = { halted: false };
+    const w = world({ killSwitch: ks }); w.runBehavior = [{ limit: true }, { success: true }];
+    await start(w); await flush(); await flush();
+    assert.strictEqual(w.timers.length, 1);
+    ks.halted = true;
+    const r2 = await start(w, '다른 앱'); assert.ok(r2.error && /비상 정지/.test(r2.error));
+    w.timers[0].f(); await flush(); await flush();
+    assert.strictEqual(w.runs.length, 1, '재개 실행 없음');
+    assert.ok(w.events.some(e => e.type === 'info' && /보류/.test(e.text)));
+    assert.strictEqual(w.api.devJobs.size, 1, '보관소에 남음');
+    ks.halted = false; w.api.releaseHeldJobs();
+    const again = w.timers.slice(1).filter(x => !x.dead);
+    assert.strictEqual(again.length, 1, '다시 예약됨');
+    again[0].f(); await flush(); await flush(); await flush();
+    assert.strictEqual(w.runs.length, 2, '재개 후 실행'); assert.strictEqual(w.api.devJobs.size, 0);
   });
 
   let fail = 0;

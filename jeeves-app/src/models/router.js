@@ -18,6 +18,7 @@ class ModelRouter {
     this.cool = {};  // 공급자별 쉬는 중: { id: { until, kind, msg } }
     this.stats = {}; // 공급자별 누적: { calls, fails, usd, lastError }
     this.onNotice = null;   // 자동 전환했을 때 알림을 받는 함수(화면 안내용)
+    this.onRecord = null;   // 호출 1회가 끝날 때마다 비용 장부에 넘기는 함수(숫자·이름만, 본문 없음)
   }
 
   // 지금 쉬는 중인 공급자 id 집합
@@ -84,7 +85,7 @@ class ModelRouter {
     try { this.resolve(role, grade); return true; } catch (_) { return false; }
   }
 
-  record(role, model, usage, provider) {
+  record(role, model, usage, provider, meta) {
     // 무료로 표시한 공급자는 0원으로 계산한다(유료 계정이면 설정에서 '유료'로 바꿀 것)
     const usd = provider && provider.tier === 'free' ? 0 : costUsd(model, usage);
     const u = (this.usage[role] = this.usage[role] || { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 0, unknownCost: false });
@@ -92,6 +93,10 @@ class ModelRouter {
     if (provider && provider.id) { const st = (this.stats[provider.id] = this.stats[provider.id] || { calls: 0, fails: 0, usd: 0, lastError: '' }); st.calls++; if (usd) st.usd += usd; }
     u.cacheRead += usage.cacheRead || 0; u.cacheWrite += usage.cacheWrite || 0;
     if (usd === null) u.unknownCost = true; else u.usd += usd;
+    if (this.onRecord) {
+      const m = meta || {};
+      try { this.onRecord({ kind: 'api', role, model, provider: provider && provider.label, usd, input: usage.input || 0, output: usage.output || 0, cacheRead: usage.cacheRead || 0, cacheWrite: usage.cacheWrite || 0, taskId: m.taskId, source: m.source, org: m.org, user: m.user }); } catch (_) {}
+    }
     return usd;
   }
 
@@ -139,12 +144,12 @@ class ModelRouter {
     const { roleCfg, provider, adapter } = r;
     provider.id = r.id;
     const full = { effort: roleCfg.effort || undefined, ...req };
-    delete full.freeOnly; delete full.noFailover;
+    delete full.freeOnly; delete full.noFailover; delete full.meta;
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const res = await adapter(provider, roleCfg.model, full, this.fetch);
-        res.costUsd = this.record(role, roleCfg.model, res.usage, provider);
+        res.costUsd = this.record(role, roleCfg.model, res.usage, provider, req && req.meta);
         res.model = `${provider.label} · ${roleCfg.model}`;
         res.modelId = roleCfg.model;
         return res;
@@ -176,12 +181,12 @@ class ModelRouter {
     if (this.coolSet().has(id)) { const e = new ProviderError(`'${p.label}' 은(는) 지금 쉬는 중입니다.`); e.kind = 'resting'; e.providerId = id; throw e; }
     const adapter = ADAPTERS[p.type];
     if (!adapter) throw new ProviderError(`지원하지 않는 공급자 방식: ${p.type}`);
-    const full = { ...req }; delete full.freeOnly;
+    const full = { ...req }; delete full.freeOnly; delete full.meta;
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const res = await adapter(p, model, full, this.fetch);
-        res.costUsd = this.record('dev', model, res.usage || {}, p);
+        res.costUsd = this.record('dev', model, res.usage || {}, p, (req && req.meta) || { source: 'dev' });
         res.model = `${p.label} · ${model}`; res.modelId = model;
         return res;
       } catch (e) {

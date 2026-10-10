@@ -31,7 +31,8 @@ class PolicyEngine {
     if (c.hard) { r.decision = 'block'; return r; }
 
     if (c.level === 'R2' || c.level === 'R3') {
-      const m = this.delegation ? this.delegation.match({ name, level: c.level, url, label, org }) : { rule: null, reason: '' };
+      let m = { rule: null, reason: '' };
+      try { if (this.delegation) m = this.delegation.match({ name, level: c.level, url, label, org }); } catch (_) { m = { rule: null, reason: '위임 규칙 확인 오류' }; }   // 규칙 오류는 "규칙 없음"(안전 쪽)
       if (m.rule && m.rule.mode !== 'shadow') {
         this.delegation.consume(m.rule.id);
         r.decision = 'delegated'; r.ruleId = m.rule.id;
@@ -50,11 +51,13 @@ class PolicyEngine {
   // 결과를 감사 기록에 남긴다. outcome: { decision?(approved|refused|timeout|cancelled|halted 등 최종), ok, message }
   record(ctx = {}, res = {}, outcome = {}) {
     if (!this.audit) return null;
+    // 결과 문장에 입력값·전체 주소가 들어갈 수 있는 행동은 문장을 남기지 않는다(성공 여부와 대상만)
+    const quiet = ['type_text', 'select_option', 'navigate'].includes(ctx.name);
     return this.audit.write({
       kind: 'action', taskId: ctx.taskId, source: ctx.source, action: ctx.name, level: res.level, rule: res.rule,
       aiLevel: ctx.aiLevel || undefined, decision: outcome.decision || res.decision, ruleId: res.ruleId || undefined,
       shadowRuleId: res.shadowRuleId || undefined, ok: outcome.ok, org: ctx.org, user: ctx.user,
-      target: { url: res.url, label: res.label, kind: res.kind }, input: ctx.input, message: outcome.message, why: res.why
+      target: { url: res.url, label: res.label, kind: res.kind }, input: ctx.input, message: quiet ? undefined : outcome.message, why: res.why
     });
   }
   event(ev) { return this.audit ? this.audit.write(ev) : null; }

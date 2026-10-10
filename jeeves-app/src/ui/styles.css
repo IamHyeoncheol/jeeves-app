@@ -392,3 +392,24 @@ body.panel-narrow.layout-web #panel > * { display: none; }
 /* 보내기 옆 "새 대화": 보내기와 같은 크기의 테두리 단추 */
 #reset-chat { border: 1px solid var(--accent); color: var(--accent); background: var(--bg); border-radius: 8px; padding: 6px 16px; font-weight: 600; font-size: inherit; cursor: pointer; text-decoration: none; }
 #reset-chat:hover { background: var(--accent-soft); }
+
+/* ── 정책 엔진(0.49): 비상 정지·위험 등급 배지·자동 위임 규칙 ── */
+.halt-btn { height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid var(--bad); background: var(--surface); color: var(--bad); font-weight: 700; cursor: pointer; white-space: nowrap; }
+.halt-btn:hover { background: var(--bad); color: #fff; }
+.halt-btn.halted { background: var(--bad); color: #fff; animation: haltPulse 1.6s ease-in-out infinite; }
+@keyframes haltPulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 30%, transparent); } }
+.lv-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 0 6px; border-radius: 8px; line-height: 18px; vertical-align: middle; border: 1px solid var(--line); color: var(--ink-2); }
+.lv-badge.lv-R2 { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+.lv-badge.lv-R3 { border-color: var(--bad); color: #fff; background: var(--bad); }
+.pm-cost { margin: 6px 0 10px; }
+.pm-rule { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; margin: 6px 0; background: var(--surface); }
+.pm-rule.off { opacity: .55; }
+.pm-rule .acts { margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+.pm-tag { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--surface-2); color: var(--ink-2); }
+.pm-tag.on { background: var(--accent-soft); color: var(--accent); }
+.pm-tag.bad { background: var(--warn-soft); color: var(--bad); }
+.pm-form { padding: 8px 0; }
+.pm-acts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.pm-acts label { font-weight: 400; }
+.pm-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.pm-row .cu-f { flex: 1 1 120px; }

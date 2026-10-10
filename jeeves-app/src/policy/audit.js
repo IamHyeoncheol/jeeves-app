@@ -11,6 +11,10 @@ const MASK = [
   /(?:\d[ -]?){13,19}/g,                       // 카드번호 등 긴 숫자
   /\bsk-[A-Za-z0-9_-]{6,}/g,                   // API 키
   /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi,          // 인증 토큰
+  /\b(?:ghp|gho|ghs|ghu|github_pat)_[A-Za-z0-9_]{10,}/g,   // GitHub 토큰
+  /\bAKIA[0-9A-Z]{16}\b/g,                    // AWS 키
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,           // Slack 토큰
+  /\bAIza[0-9A-Za-z_-]{30,}/g,                 // Google API 키
   /[\w.+-]+@[\w-]+(\.[\w-]+)+/g                // 이메일
 ];
 const pad = n => String(n).padStart(2, '0');

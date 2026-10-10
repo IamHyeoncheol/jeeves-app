@@ -38,7 +38,16 @@ class DelegationStore {
     if (!this.file) return;
     try {
       const d = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      if (d && Array.isArray(d.rules)) this.data = { v: 1, rules: d.rules, usage: d.usage && typeof d.usage === 'object' ? d.usage : {} };
+      if (d && Array.isArray(d.rules)) {
+        // 파일을 손으로 고쳤을 수 있으므로 규칙마다 다시 검증하고, 맞지 않는 규칙은 버린다(검증 없이 R3 규칙이 들어오는 것 방지)
+        const rules = [];
+        for (const r of d.rules) {
+          if (!r || typeof r !== 'object') continue;
+          const n = this.normalize(r, {}, { loading: true });
+          if (n.rule) rules.push(n.rule); else if (this.onError) this.onError(new Error(`위임 규칙 ${r.id || ''} 무시: ${n.error}`));
+        }
+        this.data = { v: 1, rules, usage: d.usage && typeof d.usage === 'object' ? d.usage : {} };
+      }
     } catch (e) {
       if (e.code !== 'ENOENT') {
         // 깨진 파일은 따로 보관하고 빈 규칙으로 시작한다(규칙이 없으면 = 가장 안전한 상태)
@@ -62,7 +71,7 @@ class DelegationStore {
   get(id) { return this.data.rules.find(r => r.id === id) || null; }
 
   // 입력 검증 → 정돈된 규칙 또는 오류 문장
-  normalize(spec, base = {}) {
+  normalize(spec, base = {}, { loading = false, checkPast = !loading } = {}) {
     const r = { ...base, ...spec };
     const actions = (Array.isArray(r.actions) ? r.actions : String(r.actions || '').split(','))
       .map(s => String(s).trim()).filter(Boolean).slice(0, 20);
@@ -78,12 +87,14 @@ class DelegationStore {
     let expiresAt = r.expiresAt ? new Date(r.expiresAt) : null;
     if (expiresAt && isNaN(expiresAt)) return { error: '유효기간 날짜 형식이 올바르지 않습니다.' };
     const now = this.now();
-    if (expiresAt && expiresAt <= now) return { error: '유효기간이 이미 지났습니다.' };
+    if (checkPast && expiresAt && expiresAt <= now) return { error: '유효기간이 이미 지났습니다.' };
     if (maxLevel === 'R3') {
       if (!sites.length) return { error: 'R3(금전·계정) 위임은 사이트를 꼭 지정해야 합니다.' };
       if (actions.includes('*')) return { error: 'R3(금전·계정) 위임은 행동 종류를 구체적으로 정해야 합니다("*" 불가).' };
       if (!maxCount) return { error: 'R3(금전·계정) 위임은 횟수 한도를 꼭 정해야 합니다.' };
-      const cap = new Date(now.getTime() + MAX_R3_DAYS * DAY);
+      let created = r.createdAt ? new Date(r.createdAt) : now;
+      if (isNaN(created) || created > now) created = now;   // 미래로 적힌 작성일은 인정하지 않는다
+      const cap = new Date((r.createdAt ? created : now).getTime() + MAX_R3_DAYS * DAY);   // 만든 날 기준 90일(읽기·수정 공통)
       if (!expiresAt) return { error: `R3(금전·계정) 위임은 유효기간(최대 ${MAX_R3_DAYS}일)을 꼭 정해야 합니다.` };
       if (expiresAt > cap) return { error: `R3(금전·계정) 위임의 유효기간은 최대 ${MAX_R3_DAYS}일입니다.` };
     }
@@ -95,7 +106,7 @@ class DelegationStore {
         actions, maxLevel, sites, labels, maxCount, period,
         expiresAt: expiresAt ? expiresAt.toISOString() : null,
         note: clip(r.note, 200),
-        createdAt: r.createdAt || now.toISOString(), createdBy: r.createdBy || 'ui'
+        createdAt: r.createdAt && new Date(r.createdAt) <= now ? new Date(r.createdAt).toISOString() : now.toISOString(), createdBy: r.createdBy || 'ui'
       }
     };
   }
@@ -114,7 +125,8 @@ class DelegationStore {
     if (!cur) return { ok: false, error: '규칙을 찾을 수 없습니다.' };
     const narrowing = patch && Object.keys(patch).every(k => k === 'enabled' && patch.enabled === false);
     if (source !== 'ui' && !narrowing) return { ok: false, error: '위임 규칙을 바꾸는 것은 PC 화면에서만 할 수 있습니다(끄기는 가능).' };
-    const n = this.normalize({ ...patch, id, createdAt: cur.createdAt, createdBy: cur.createdBy }, cur);
+    // 이미 지난 규칙도 끄기·그림자 전환은 되어야 하므로, 날짜를 새로 넣을 때만 "이미 지남"을 검사한다
+    const n = this.normalize({ ...patch, id, createdAt: cur.createdAt, createdBy: cur.createdBy }, cur, { checkPast: patch && patch.expiresAt !== undefined });
     if (n.error) return { ok: false, error: n.error };
     Object.assign(cur, n.rule);
     return this.save() ? { ok: true, rule: cur } : { ok: false, error: '규칙 파일을 저장하지 못했습니다.' };

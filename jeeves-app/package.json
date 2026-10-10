@@ -9,7 +9,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node tests/run-tests.js && node tests/mail-tests.js && node tests/imap-tests.js && node tests/credential-tests.js && node tests/dev-tests.js && node tests/junior-tests.js && node tests/team-tests.js && node tests/webchat-tests.js && node tests/idea-tests.js && node tests/customize-tests.js && node tests/handoff-tests.js && node tests/dev-capacity-tests.js && node tests/dev-jobs-tests.js && node tests/verify-tests.js && node tests/auto-tests.js && node tests/folder-tests.js",
+    "test": "node tests/run-tests.js && node tests/mail-tests.js && node tests/imap-tests.js && node tests/credential-tests.js && node tests/dev-tests.js && node tests/junior-tests.js && node tests/team-tests.js && node tests/webchat-tests.js && node tests/idea-tests.js && node tests/customize-tests.js && node tests/handoff-tests.js && node tests/dev-capacity-tests.js && node tests/dev-jobs-tests.js && node tests/verify-tests.js && node tests/auto-tests.js && node tests/folder-tests.js && node tests/policy-tests.js && node tests/policy-integration-tests.js",
     "pack:win": "electron-packager . Jeeves --platform=win32 --arch=x64 --out=dist --overwrite --icon=build/icon.ico --app-version=0.4.0 --win32metadata.ProductName=Jeeves --win32metadata.FileDescription=Jeeves --ignore=^/dist --ignore=^/tests --ignore=^/shots --ignore=^/scripts --ignore=^/release --ignore=^/docs --ignore=^/installer"
   },
   "devDependencies": {

@@ -21,12 +21,7 @@ function maxLevel(a, b) {
   return LEVELS[Math.max(rank(a), rank(b))];
 }
 
-function cardLike(text) {
-  const m = String(text || '').match(CARD);
-  if (!m) return false;
-  const digits = m[0].replace(/\D/g, '');
-  if (digits.length < 13 || digits.length > 19) return false;
-  // 룬 검사(카드번호 체크섬)로 전화번호 같은 긴 숫자의 오탐을 줄인다
+const luhn = digits => {
   let sum = 0;
   for (let i = 0; i < digits.length; i++) {
     let d = +digits[digits.length - 1 - i];
@@ -34,6 +29,23 @@ function cardLike(text) {
     sum += d;
   }
   return sum % 10 === 0;
+};
+// 글 안 어디에든 카드번호 형태(13~19자리, 공백·하이픈 묶음 허용 + 룬 체크섬)가 있는가.
+// 숫자 묶음을 이어 붙인 모든 연속 조합을 본다 → 앞에 전화번호를 붙여도 뒤의 카드번호를 찾는다.
+function cardLike(text) {
+  const runs = String(text || '').match(/\d+(?:[ ._/-]\d+)*/g) || [];
+  for (const run of runs) {
+    const groups = run.split(/[ ._/-]/);
+    for (let i = 0; i < groups.length; i++) {
+      let digits = '';
+      for (let j = i; j < groups.length; j++) {
+        digits += groups[j];
+        if (digits.length > 19) break;
+        if (digits.length >= 13 && luhn(digits)) return true;
+      }
+    }
+  }
+  return false;
 }
 
 // action: { name, input = {}, snap = null, aiLevel = null, opts = { trashLevel } }
@@ -53,6 +65,10 @@ function classify(action = {}) {
   if (name === 'type_text' && cardLike(input.text)) return out('R3', 'card-value', '카드번호 형태의 값은 입력하지 않습니다.', true);
   if (name === 'navigate' && !/^(https?:\/\/|[\w-]+(\.[\w-]+)+)/i.test(String(input.url || '').trim())) return out('R3', 'bad-url', 'http/https 주소만 열 수 있습니다.', true);
 
+  // 번호가 주어졌는데 관찰한 번호표에 없는 요소 → 무엇인지 모르므로 확인(R2)으로 올린다(번호표 밖 버튼 우회 방지)
+  if (['click', 'type_text', 'select_option'].includes(name) && input && input.id != null && snap && Array.isArray(snap.elements) && !el) {
+    return out('R2', 'unknown-element', `[${input.id}]번은 관찰한 번호표에 없는 요소라 확인이 필요합니다.`);
+  }
   if (name === 'click' && el) {
     if (R3_WORDS.test(label)) return out('R3', 'r3-word', `"${el.name}" 은(는) 금전·계정에 영향을 주는 동작입니다.`);
     if (R2_WORDS.test(label)) return out('R2', 'r2-word', `"${el.name}" 버튼은 되돌릴 수 없는 동작일 수 있습니다.`);
@@ -60,6 +76,11 @@ function classify(action = {}) {
   }
   if (name === 'type_text' && input.press_enter && el && SEND_FIELD.test((el.name || '') + (el.placeholder || ''))) return out('R2', 'enter-send', '입력 후 Enter 가 메시지 전송·게시가 될 수 있습니다.');
   if (name === 'press_key' && input.key === 'Enter' && snap && SEND_TITLE.test(snap.title || '')) return out('R2', 'enter-send', 'Enter 가 메시지 전송이 될 수 있습니다.');
+  // Enter(또는 Space)로 제출하는 경우: 화면에 결제·송금 같은 버튼이 있으면 그 양식이 제출될 수 있으므로 확인(R2)
+  const enterLike = (name === 'type_text' && input.press_enter) || (name === 'press_key' && (input.key === 'Enter' || input.key === 'Space'));
+  if (enterLike && snap && Array.isArray(snap.elements) && snap.elements.some(e => R3_WORDS.test(`${e.name || ''} ${e.kind || ''}`))) {
+    return out('R2', 'enter-risky-page', '이 화면에는 결제·송금 같은 버튼이 있어 Enter 가 그 양식을 제출할 수 있습니다.');
+  }
   if (name === 'download') return out('R2', 'download', '파일 다운로드');
   if (name === 'mail_trash') return out(opts.trashLevel === 'R1' ? 'R1' : 'R2', 'mail-trash', '메일 휴지통 이동');
   if (name === 'mail_move') return out('R1', 'mail-move', '메일 폴더 이동');

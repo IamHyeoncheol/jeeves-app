@@ -56,6 +56,8 @@ const DEFAULTS = {
     viewport: { width: 1440, height: 900 }
   },
   failover: true,   // 한도·잔액 소진·장애 시 다음 공급자로 자동 전환
+  // 정책 엔진(기준서 7장·사양서 01): 비상 정지 단축키, 메일 휴지통 등급(처음 R2), 조직·사용자 칸(상품화 대비, 지금은 기본값 하나)
+  policy: { haltShortcut: 'CommandOrControl+Shift+F12', trashLevel: 'R2', org: 'default', user: 'owner' },
   custom: { enabled: true, nickname: '', about: '', instructions: '', grade: 'I' },   // 맞춤설정(호칭·소개·답변 지침). grade 이상으로 대화할 때만 AI에 전달
   infoGrade: 'I',   // 새 대화·작업의 시작 등급(P 공개/I 내부/C 기밀/S 비밀). 대화·작업마다 입력창 옆 선택칸으로 바꿀 수 있다
   ui: { homepage: 'https://www.google.com', krwPerUsd: 1400, layout: 'chat', previewWidth: 400, panelWidth: 420 }, // layout: 'chat' = 작업 화면 중심, 'web' = 웹 크게
@@ -238,6 +240,12 @@ class ConfigStore {
     if (patch.mcp && patch.mcp.allowExternal !== undefined) patch.mcp.allowExternal = patch.mcp.allowExternal === true;
     if (patch.failover !== undefined) patch.failover = !!patch.failover;
     if (patch.dev) patch.dev = sanitizeDev(patch.dev);
+    if (patch.policy) {   // 정책 설정: 휴지통 등급은 R1/R2 만, 단축키는 짧은 글자만. 조직·사용자 칸은 화면에서 바꾸지 않는다(상품화 단계에서)
+      const q = patch.policy, ok = {};
+      if (q.trashLevel === 'R1' || q.trashLevel === 'R2') ok.trashLevel = q.trashLevel;
+      if (typeof q.haltShortcut === 'string' && q.haltShortcut.length <= 40 && /^[\w+]+$/.test(q.haltShortcut)) ok.haltShortcut = q.haltShortcut;
+      patch.policy = ok;
+    }
     if (patch.custom) patch.custom = require('./customize').sanitizeCustom(patch.custom);
     delete patch.infoGradeV;
     delete patch.removedProviders;   // 삭제 기록은 removeProvider() 로만 바꾼다

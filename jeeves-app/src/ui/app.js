@@ -847,7 +847,7 @@ function onAgentEvent(ev) {
     case 'error': addStep(c, 'bad', ICON.error, ev.message); break;
     case 'confirm': {
       if (c.lastThinking) { c.lastThinking.remove(); c.lastThinking = null; }
-      c.slot.innerHTML = `<div class="prompt"><div class="q">이 동작을 실행할까요?</div><div>${esc(ev.desc)}</div><div class="why">이유: ${esc(ev.why)}</div>
+      c.slot.innerHTML = `<div class="prompt"><div class="q">이 동작을 실행할까요?${ev.level ? ` <span class="lv-badge lv-${esc(ev.level)}">${esc(ev.level)}</span>` : ''}</div><div>${esc(ev.desc)}</div><div class="why">이유: ${esc(ev.why)}</div>${ev.shadow ? '<div class="why">🌓 그림자 위임 규칙과 일치: 자동으로 바꾸면 다음부터 묻지 않습니다(설정: 자동 위임 규칙).</div>' : ''}
         <div class="acts"><button class="primary" data-a="ok">허용</button><button class="ghost" data-a="no">거절</button><button class="ghost" data-a="view">탭 보고 판단</button></div></div>`;
       c.slot.querySelector('[data-a=ok]').onclick = () => { c.slot.innerHTML = ''; addStep(c, '', '👍', '사용자 허용'); api.agent.respond(ev.taskId, { ok: true }); };
       c.slot.querySelector('[data-a=no]').onclick = () => { c.slot.innerHTML = ''; addStep(c, 'bad', '✋', '사용자 거절'); api.agent.respond(ev.taskId, { ok: false }); };

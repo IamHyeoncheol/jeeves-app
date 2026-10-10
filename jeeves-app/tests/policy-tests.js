@@ -238,6 +238,59 @@ const clock = (iso) => { let d = new Date(iso); const f = () => new Date(d); f.s
     }
   });
 
+  // ── 검수 지적 보완(2026-10-10) ──
+  await t('보완: 카드번호 앞에 전화번호를 붙여도 감지, 번호표에 없는 요소는 R2, 결제 버튼 있는 화면의 Enter 는 R2', () => {
+    assert.ok(cardLike('010-1234-5678 4111111111111111'));
+    assert.ok(cardLike('연락처 01012345678, 카드 4111-1111-1111-1111'));
+    assert.ok(!cardLike('주문번호 20261010123456789012'));
+    assert.strictEqual(classify({ name: 'click', input: { id: 99 }, snap: snapOf([{ name: '결제하기' }]) }).level, 'R2');
+    assert.strictEqual(classify({ name: 'type_text', input: { id: 1, text: '쿠폰', press_enter: true }, snap: snapOf([{ name: '쿠폰 입력', kind: 'input:text' }, { name: '결제하기' }]) }).level, 'R2');
+    assert.strictEqual(classify({ name: 'press_key', input: { key: 'Enter' }, snap: snapOf([{ name: '결제하기' }], { title: '주문서' }) }).level, 'R2');
+    assert.strictEqual(classify({ name: 'press_key', input: { key: 'Enter' }, snap: snapOf([{ name: '검색' }], { title: '검색' }) }).level, 'R1');
+  });
+  await t('보완: 위임 사이트 판정 우회 시도(비슷한 이름·@·끝 점·하위 도메인 위장) 모두 불일치', () => {
+    const d = new DelegationStore({ file: path.join(tmp(), 'r.json') });
+    d.add({ actions: ['click'], maxLevel: 'R2', sites: ['example.com'] }, { source: 'ui' });
+    const m = url => !!d.match({ name: 'click', level: 'R2', url }).rule;
+    assert.ok(m('https://example.com/a')); assert.ok(m('https://pay.example.com/a'));
+    for (const u of ['https://evilexample.com/', 'https://example.com.evil.com/', 'https://example.com@evil.com/', 'https://evil.com/?u=example.com', 'https://evil.com/example.com', 'javascript:alert(1)', '']) assert.ok(!m(u), u);
+  });
+  await t('보완: 손으로 고친 규칙 파일 — 모양이 틀린 규칙·90일 넘는 R3·사이트 없는 R3 는 버림', () => {
+    const f = path.join(tmp(), 'r.json');
+    const now = new Date().toISOString(), far = new Date(Date.now() + 400 * 864e5).toISOString(), near = new Date(Date.now() + 5 * 864e5).toISOString();
+    fs.writeFileSync(f, JSON.stringify({ v: 1, usage: {}, rules: [
+      { id: 'a', actions: 'click', maxLevel: 'R3', sites: [], maxCount: 5, expiresAt: near, createdAt: now },
+      { id: 'b', actions: ['click'], maxLevel: 'R3', sites: ['x.com'], maxCount: 5, expiresAt: far, createdAt: now },
+      { id: 'c', actions: ['click'], maxLevel: 'R3', sites: ['x.com'], maxCount: 5, expiresAt: near, createdAt: now },
+      null, 'garbage', { id: 'd' }
+    ] }));
+    const errs = []; const d = new DelegationStore({ file: f }); 
+    assert.deepStrictEqual(d.list().map(r => r.id), ['c']);
+    const e = new PolicyEngine({ delegation: { match() { throw new Error('boom'); } } });
+    assert.strictEqual(e.evaluate({ name: 'click', input: { id: 1 }, snap: snapOf([{ name: '결제하기' }]) }).decision, 'block', '규칙 오류는 규칙 없음으로');
+  });
+  await t('보완: 기한이 지난 규칙도 끄기·그림자 전환은 가능', () => {
+    const now = clock('2026-10-10T10:00:00');
+    const d = new DelegationStore({ file: path.join(tmp(), 'r.json'), now });
+    const { rule } = d.add({ actions: ['click'], maxLevel: 'R2', expiresAt: '2026-10-12T00:00:00' }, { source: 'ui' });
+    now.set('2026-10-20T00:00:00');
+    assert.ok(d.update(rule.id, { enabled: false }, { source: 'mcp' }).ok);
+    assert.ok(d.update(rule.id, { mode: 'shadow' }, { source: 'ui' }).ok);
+    assert.ok(!d.update(rule.id, { expiresAt: '2026-10-15T00:00:00' }, { source: 'ui' }).ok, '지난 날짜로 연장은 불가');
+  });
+  await t('보완: 감사 기록 — 글 입력·주소 이동의 결과 문장(입력값·전체 주소 포함)은 남기지 않음, 기타 키 형식 가림', () => {
+    const dir = tmp(), now = clock('2026-10-10T09:00:00');
+    const audit = new AuditLog({ dir, now });
+    const e = new PolicyEngine({ audit });
+    const r1 = e.evaluate({ name: 'type_text', input: { id: 1, text: '홍길동 서울시 강서구' }, snap: snapOf([{ name: '이름', kind: 'input:text' }]) });
+    e.record({ name: 'type_text', input: { id: 1, text: '홍길동 서울시 강서구' } }, r1, { ok: true, message: '[1]에 "홍길동 서울시 강서구" 입력' });
+    const r2 = e.evaluate({ name: 'navigate', input: { url: 'https://a.com/p?session=SECRET123' } });
+    e.record({ name: 'navigate', input: { url: 'https://a.com/p?session=SECRET123' } }, r2, { ok: true, message: '이동: https://a.com/p?session=SECRET123' });
+    audit.write({ kind: 'action', message: 'ghp_abcdefghijklmnop AKIAABCDEFGHIJKLMNOP xoxb-1234567890-abc AIzaSyA1234567890abcdefghijklmnopqrstu' });
+    const raw = fs.readFileSync(audit.fileFor(now()), 'utf8');
+    assert.ok(!/홍길동|SECRET123|ghp_|AKIA|xoxb|AIza/.test(raw), raw);
+  });
+
   let fail = 0;
   for (const [ok, name, err] of results) { if (!ok) fail++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : '  → ' + err}`); }
   console.log(`\npolicy-tests: ${results.length - fail}/${results.length} 통과`);

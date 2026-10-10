@@ -1,6 +1,12 @@
 // 브라우저 조작기: 에이전트의 "손과 눈".
 // 하나의 탭(webContents)을 받아 관찰(번호표·캡처)과 행동(클릭·입력·스크롤)을 수행한다.
 const S = require('./page-scripts');
+const { R3_WORDS, R2_WORDS } = require('../policy/risk');
+// 관찰 때 이름보다 지금 이름이 더 위험한 말을 담고 있는가(R3 > R2 > 그 외)
+function riskierNow(before, now) {
+  const lv = t => (R3_WORDS.test(String(t || '')) ? 2 : R2_WORDS.test(String(t || '')) ? 1 : 0);
+  return lv(now) > lv(before);
+}
 
 const WORLD = 1001; // 페이지 스크립트와 분리된 격리 공간 번호
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -88,6 +94,11 @@ class PageDriver {
     if (info.covered) {
       // 다른 요소(팝업 등)에 가려져 있으면 강제 클릭하지 않고 알려 준다
       return { ok: false, message: `[${id}]번이 다른 요소("${info.coverName}")에 가려져 있습니다. 팝업을 먼저 닫거나 다른 방법을 쓰세요.` };
+    }
+    // 관찰한 뒤 페이지가 버튼 이름을 위험한 말(결제·송금·보내기 등)로 바꿨으면 누르지 않는다(판정은 관찰 시점 이름으로 했으므로)
+    const seen = this.lastSnapshot && Array.isArray(this.lastSnapshot.elements) ? this.lastSnapshot.elements.find(e => e.id === id) : null;
+    if (seen && riskierNow(seen.name, info.name)) {
+      return { ok: false, message: `[${id}]번 이름이 관찰 때("${String(seen.name).slice(0, 40)}")와 달라져 위험해 보이는 "${String(info.name).slice(0, 40)}"(으)로 바뀌었습니다. 누르지 않았습니다. 화면을 다시 확인하세요.` };
     }
     await this.mouseClick(info.x, info.y);
     await this.settle();
