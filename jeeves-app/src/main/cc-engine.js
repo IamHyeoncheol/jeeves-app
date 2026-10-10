@@ -10,6 +10,8 @@ const { EventEmitter } = require('events');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+// 지브스 도구(MCP) 호출 한 번을 Claude Code 가 기다리는 최대 시간: 지브스의 사용자 확인 대기(10분)보다 길게. 실기 기록에서 질문이 60초 만에 'The operation timed out' 으로 끊겼음(2026-10-10)
+const MCP_WAIT_MS = 11 * 60 * 1000;
 
 const RULES = `당신은 Jeeves 브라우저의 작업 엔진으로 실행되었습니다.
 - 웹 작업은 반드시 jeeves MCP 도구(mcp__jeeves__browser_*)로만 하세요. 파일 편집·명령 실행 도구는 쓰지 마세요.
@@ -150,7 +152,7 @@ class ClaudeCodeTask extends EventEmitter {
     const dir = this.o.workDir;
     fs.mkdirSync(dir, { recursive: true });
     const mcpFile = path.join(dir, 'jeeves-mcp.json');
-    fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: { jeeves: { type: 'http', url: this.o.mcpUrl, headers: { Authorization: 'Bearer ' + this.o.mcpToken } } } }, null, 2));
+    fs.writeFileSync(mcpFile, JSON.stringify({ mcpServers: { jeeves: { type: 'http', url: this.o.mcpUrl, headers: { Authorization: 'Bearer ' + this.o.mcpToken }, timeout: MCP_WAIT_MS } } }, null, 2));
     const rulesFile = path.join(dir, 'jeeves-rules.txt');
     fs.writeFileSync(rulesFile, RULES, 'utf8');
     return { mcpFile, rulesFile };
@@ -175,7 +177,7 @@ class ClaudeCodeTask extends EventEmitter {
     const shell = /\.(cmd|bat)$/i.test(bin);
     let child;
     try {
-      child = spawn(bin, this.args(resume), { cwd: this.o.workDir, windowsHide: true, shell, env: { ...process.env } });
+      child = spawn(bin, this.args(resume), { cwd: this.o.workDir, windowsHide: true, shell, env: { ...process.env, MCP_TOOL_TIMEOUT: String(MCP_WAIT_MS) } });   // 사용자 확인·질문(최대 10분)을 기다리는 동안 Claude Code 가 도구 호출을 60초 만에 끊지 않게
     } catch (e) { return this.fail('Claude Code 실행 실패: ' + e.message); }
     this.child = child;
     let buf = '', errText = '', lastResult = null;

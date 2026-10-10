@@ -271,7 +271,7 @@ function fakeFetch(handler) {
     assert.ok(!a0.includes('--resume'));
     assert.strictEqual(calls[1].args[calls[1].args.indexOf('--resume') + 1], 'sess-123');
     const mcpCfg = JSON.parse(fs.readFileSync(a0[a0.indexOf('--mcp-config') + 1], 'utf8'));
-    assert.deepStrictEqual(mcpCfg.mcpServers.jeeves, { type: 'http', url: 'http://127.0.0.1:1/mcp', headers: { Authorization: 'Bearer tok' } });
+    assert.deepStrictEqual(mcpCfg.mcpServers.jeeves, { type: 'http', url: 'http://127.0.0.1:1/mcp', headers: { Authorization: 'Bearer tok' }, timeout: 11 * 60 * 1000 });   // 사용자 확인 대기(10분)보다 길게
     // Jeeves 은 Claude 로그인 정보를 넘기지 않는다
     assert.ok(!JSON.stringify(calls).match(/oauth|session_token|credentials/i));
   });
