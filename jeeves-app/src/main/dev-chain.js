@@ -7,7 +7,7 @@ const { REST_MS } = require('../dev/dev-router');
 
 const KIND_TXT = { limit: '사용 한도', login: '로그인 필요', missing: '실행 불가', task: '작업 실패', error: '오류' };
 
-function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, level, TaskClass = DevTask, timeoutMs, router, grade, krwPerUsd, ApiClass = ApiCoderTask, handoff = true }) {
+function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, level, TaskClass = DevTask, timeoutMs, router, grade, krwPerUsd, ApiClass = ApiCoderTask, handoff = true, onAttempt }) {
   const attempts = [];
   let current = null, finished = false, escalated = false, totalUsd = 0, lastTests = null, lastRef = null, ckN = 0;
   const baseSnap = handoff ? snapshotDir(folder) : null;      // 이 작업을 시작할 때의 폴더 모양(누적 변경 계산용)
@@ -16,7 +16,7 @@ function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, lev
     if (finished) return; finished = true;
     if (handoff) H.releaseLock(folder, id);
     emit({ taskId: id, type: 'done', success, summary, dev: true, engine: 'dev', engineLabel: last ? last.engineLabel : '', level,
-      chain: attempts.map(a => ({ label: a.engineLabel, ok: a.success, kind: a.kind })), changes: last ? last.changes : null, denied: last ? last.denied : [], estUsd: totalUsd, subscription: attempts.every(a => a.subscription !== false), ...(extra || {}) });
+      chain: attempts.map(a => ({ label: a.engineLabel, ok: a.success, kind: a.kind })), changes: last ? last.changes : null, denied: last ? last.denied : [], estUsd: totalUsd, subscription: attempts.every(a => a.subscription !== false), lastKind: last ? last.kind : undefined, resumeAt: last ? last.resumeAt : undefined, ...(extra || {}) });
   };
   const launch = engine => {
     devRouter.used(engine.id);
@@ -53,6 +53,7 @@ function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, lev
   const onFinished = (engine, r) => {
     current = null;
     attempts.push(r); totalUsd += r.estUsd || 0;
+    if (onAttempt) { try { onAttempt(engine, r); } catch (_) {} }   // 여유 기록(한도에 닿은 시각 등)
     if (!handoff) return proceed(engine, r);
     writeState(r, !r.success).catch(() => null).then(() => proceed(engine, r));
   };
@@ -60,10 +61,14 @@ function runChain({ id, goal, folder, chain, devRouter, bins, workDir, emit, lev
     if (r.success) return done(true, r.summary, r);
     if (r.kind === 'stopped') return done(false, r.summary, r);
     const k = ['limit', 'login', 'missing'].includes(r.kind) ? r.kind : (r.kind === 'task' ? 'task' : 'error');
-    if (k !== 'task') devRouter.rest(engine.id, REST_MS[k] || REST_MS.error, k);
+    const famWide = ['limit', 'login', 'missing'].includes(k);   // 같은 계열(같은 Claude 구독·같은 Codex 로그인 — 주니어·기타 도구는 각자 따로)은 모델이 달라도 같이 막힌다고 본다
+    if (k !== 'task') {
+      const ms = k === 'limit' && r.resumeAt ? Math.max(60000, r.resumeAt - Date.now()) : (REST_MS[k] || REST_MS.error);   // 한도는 풀리는 시각까지 쉼(모르면 30분)
+      for (const e of famWide && (engine.family === 'claude' || engine.family === 'codex') ? chain.filter(x => x.family === engine.family) : [engine]) devRouter.rest(e.id, ms, k);
+    }
     let next = null;
     if (k === 'task') { if (!escalated) { escalated = true; next = devRouter.next(chain, engine.id, 'task'); } }
-    else next = devRouter.next(chain, engine.id, k);
+    else { next = devRouter.next(chain, engine.id, k); while (famWide && next && devRouter.resting && devRouter.resting(next.id)) next = devRouter.next(chain, next.id, k); }
     if (next) {
       emit({ taskId: id, type: 'info', text: `엔진 전환: ${engine.label} → ${next.label} (사유: ${KIND_TXT[k]})${k === 'task' ? ' — 더 강한 엔진으로 올립니다' : ''}` });
       return launch(next);

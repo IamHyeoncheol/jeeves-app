@@ -7,6 +7,7 @@
 //                  4 매우 어려움: 설계 변경·대규모 정리·보안·결제·데이터베이스
 // 고르는 순서: ① 정보 등급·사용 가능 여부 통과 → ② 비용 낮은 순(무료 < 구독 < API) → ③ 난이도를 겨우 채우는 "가장 약한" 엔진 → ④ 사용자가 정한 우선순위 → ⑤ 이번에 덜 쓴 쪽
 const { gradeRank } = require('../models/recommend');
+const { headroomPenalty } = require('./dev-capacity');
 
 const COST_RANK = { free: 0, subscription: 1, api: 2 };
 const LEVEL_LABEL = { 1: '간단', 2: '보통', 3: '어려움', 4: '매우 어려움' };
@@ -99,8 +100,9 @@ class DevRouter {
   used(id) { this.runs.set(id, (this.runs.get(id) || 0) + 1); }
 
   // 계획: 난이도에 맞는 순서의 엔진 목록을 만든다.
-  // opts: { grade, level, engines, prefer:[family...], exclude:Set }
-  plan({ grade, level, engines, prefer = [], exclude = new Set(), first = '' }) {
+  // opts: { grade, level, engines, prefer:[family...], exclude:Set, capacity:{family:{state,until,note}}, need:'small'|'medium'|'large' }
+  // capacity: 한도에 닿은 계열은 제외(풀리는 시각 표시), 여유가 빠듯한 계열은 같은 비용이면 뒤로 민다(큰 일일수록 더)
+  plan({ grade, level, engines, prefer = [], exclude = new Set(), first = '', capacity = {}, need = 'medium' }) {
     const skipped = [];
     const ok = [];
     for (const e of engines) {
@@ -109,10 +111,13 @@ class DevRouter {
       if (!gradeOkFor(e, grade)) { skipped.push({ id: e.id, label: e.label, why: `정보 등급 ${grade}는 허용 범위 밖(허용 ${e.maxGrade}까지${grade === 'S' ? ', S는 로컬 모델만' : ''})` }); continue; }
       const r = this.resting(e.id);
       if (r) { skipped.push({ id: e.id, label: e.label, why: `쉬는 중(${r.kind}, 약 ${Math.ceil((r.until - this.clock()) / 60000)}분)` }); continue; }
+      const cap = capacity[e.family];
+      if (cap && cap.state === 'out') { skipped.push({ id: e.id, label: e.label, why: cap.note, out: true, until: cap.until }); continue; }
       ok.push(e);
     }
+    const pen = e => { const c = capacity[e.family]; return c ? headroomPenalty(c.state, need) : 0; };
     const pref = f => { const i = prefer.indexOf(f); return i < 0 ? 99 : i; };
-    const sorter = (a, b) => (COST_RANK[a.cost] - COST_RANK[b.cost]) || ((a.family === first ? 0 : 1) - (b.family === first ? 0 : 1)) || (!!b.local - !!a.local) || (a.maxLevel - b.maxLevel) || (pref(a.family) - pref(b.family)) || ((this.runs.get(a.id) || 0) - (this.runs.get(b.id) || 0)) || a.id.localeCompare(b.id);
+    const sorter = (a, b) => (COST_RANK[a.cost] - COST_RANK[b.cost]) || ((a.family === first ? 0 : 1) - (b.family === first ? 0 : 1)) || (pen(a) - pen(b)) || (!!b.local - !!a.local) || (a.maxLevel - b.maxLevel) || (pref(a.family) - pref(b.family)) || ((this.runs.get(a.id) || 0) - (this.runs.get(b.id) || 0)) || a.id.localeCompare(b.id);
     const enough = ok.filter(e => e.maxLevel >= level && e.minLevel <= level).sort(sorter);
     // 난이도를 못 채우는 약한 엔진은 맨 끝에 "마지막 수단"으로만 둔다(경고 표시)
     const weak = ok.filter(e => e.maxLevel < level).sort((a, b) => b.maxLevel - a.maxLevel || sorter(a, b)).map(e => ({ ...e, weak: true }));

@@ -118,6 +118,19 @@ const click = (el, act) => { el.querySelector(`.msg-actions [data-act=${act}]`).
   const ic2 = $$('.gradewarn').pop(); ok(ic2 && ic2.querySelector('textarea'), '아이디어 재시도: 현재 모드가 대화여도 아이디어 확인 카드로');
   [...ic2.querySelectorAll('button')].find(b => /이대로/.test(b.textContent)).click(); await tick(80);
   ok(last('chat.send').args[1].mode === 'idea', '아이디어 재시도 전송은 idea 모드');
+  // 8) 자동 선정 표시: 분량·여유, 한도 예약 카드, 재시작 후 이어가기 카드
+  dflt['dev.plan'] = { ...dflt['dev.plan'], volume: { value: 3, label: '큼', reasons: ['화면 8개'] }, capacity: { claude: { state: 'tight', note: '사용 80% 입력(1시간 전)', until: 0 }, codex: { state: 'unknown', note: '정보 없음(보통으로 봄)', until: 0 } } };
+  await send('화면 8개짜리 플래너 앱을 만들어줘', 'act');
+  const pc = $('.devplan'); ok(pc && /분량\s*큼/.test(pc.textContent) && /Claude Code.*빠듯/.test(pc.textContent) && !/Codex.*정보 없음/.test(pc.textContent), '계획 카드: 분량·빠듯한 여유 표시(정보 없는 계열은 숨김)');
+  pc.querySelector('[data-a=no]').click(); await tick();
+  dflt['dev.plan'] = { ...dflt['dev.plan'], chain: [], waiting: { resumeAt: Date.now() + 7200000 }, capacity: {} };
+  await send('화면 8개짜리 플래너 앱을 만들어줘 두 번째', 'act');
+  const pw = $('.devplan'); ok(pw && /자동으로 착수/.test(pw.textContent) && /예약 시작/.test(pw.querySelector('[data-a=go]').textContent), '모두 한도: 예약 시작 카드');
+  pw.querySelector('[data-a=no]').click(); await tick();
+  agentHandler({ taskId: 'p1', type: 'created', goal: '복원', title: '복원', dev: true, devInfo: { level: 3, folder: 'D:\\proj', chain: [] } });
+  agentHandler({ taskId: 'p1', type: 'pending', text: '앱이 꺼져 중단된 작업입니다.' }); await tick();
+  const pb = [...w.document.querySelectorAll('[data-p]')]; ok(pb.length === 2, '재시작 후 이어가기 카드(이어서/버리기)');
+  pb[0].click(); await tick(); ok(calls.some(c => c.key === 'dev.pendingAct' && c.args[0] === 'p1' && c.args[1] === 'resume'), '이어서 진행 → 메인에 전달');
   // 7) 사이드바에 개발 구역 없음
   ok(!$('#sb-devs') && $('#sb-works'), '사이드바: 개발 구역 통합');
   ok(!$('#mode [data-mode=dev]'), '모드 단추: 개발 단추 제거');

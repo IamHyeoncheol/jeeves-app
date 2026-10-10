@@ -10,6 +10,7 @@ const { AgentTask } = require('../agent/agent');
 const { JeevesMcpServer } = require('./mcp-server');
 const { ClaudeCodeTask, runClaudeChat, findClaude, getVersion } = require('./cc-engine');
 const { analyzeDifficulty, buildEngines, DevRouter, juniorSafe, classifyRoute } = require('../dev/dev-router');
+const { DevCapacity, estimateVolume, needOf, effectiveLevel } = require('../dev/dev-capacity');
 const { checkFolder, findBinary, snapshotDir } = require('./dev-engine');
 const { runChain } = require('./dev-chain');
 const { detectLocalModels, buildJuniorEngines } = require('../dev/local-ai');
@@ -617,29 +618,44 @@ async function devAvail(all) {
   for (const c of dev.custom || []) if (c.enabled) { const b = fs.existsSync(c.bin) ? c.bin : await findBinary(c.bin); if (b) bins['cli-' + c.id] = b; avail['cli-' + c.id] = !!b; }
   return { bins, avail };
 }
-async function devPlan({ goal, infoGrade, folder, attachments, engineId }) {
+let devCap = null;   // 엔진 계열별 한도 기록(userData\jeeves-dev-usage.json)
+const HOUR_MS = 3600 * 1000, MAX_WAIT_MS = 12 * HOUR_MS;
+const FAMILIES = ['claude', 'codex'];
+async function devPlan({ goal, infoGrade, folder, attachments, engineId, hint }) {
   const all = config.get(), grade = pickGrade(infoGrade);
   const fc = checkFolder(folder || all.dev.folder, { userData: app.getPath('userData') });
   if (!fc.ok) return { ok: false, error: fc.error };
   const atts = sanitizeAtts(attachments);
   const snap = snapshotDir(fc.folder, 3000);
   const diff = analyzeDifficulty(goal + atts.filter(a => a.kind === 'text').map(a => '\n' + a.text.slice(0, 2000)).join(''), { hasImages: atts.some(a => a.kind === 'image'), fileCount: snap.files.size });
+  // 분량·여유: 난이도(어려움)와 별개로 일의 넓이와 지금 쓸 수 있는 여유를 본다(규칙 계산, AI 호출 0)
+  const vol = estimateVolume(goal + atts.filter(a => a.kind === 'text').map(a => '\n' + a.text.slice(0, 2000)).join(''), { attCount: atts.length, hasImages: atts.some(a => a.kind === 'image'), fileCount: snap.files.size });
+  if (hint && hint.volume > vol.volume) { vol.volume = hint.volume; vol.reasons.push('이전 실행에서 판정한 분량 유지'); }
+  const level = effectiveLevel(diff.level, vol.volume), need = needOf(level, vol.volume);
+  const capCfg = (all.dev && all.dev.capacity) || {};
+  const capacity = {};
+  if (devCap) for (const f of FAMILIES) capacity[f] = devCap.state(f, capCfg[f]);
   const { bins, avail } = await devAvail(all);
   const junior = buildJuniorEngines(all, await detectLocalModels((u, o) => net.fetch(u, o)));   // 설치된 로컬 AI·무료 API 를 자동으로 찾아 주니어 엔진으로
-  const safe = juniorSafe(goal, diff);   // 품질에 영향이 큰 일이면 주니어 단독 배정에서 뺀다(팀 작업은 시니어가 조각별로 판정)
+  const safe = juniorSafe(goal, { ...diff, level });   // 품질에 영향이 큰 일이면 주니어 단독 배정에서 뺀다(팀 작업은 시니어가 조각별로 판정)
   const allEngines = buildEngines(all, avail, junior);
   const engines = allEngines.filter(e => !e.junior || safe.ok);
   const juniorOut = safe.ok ? [] : allEngines.filter(e => e.junior).map(e => ({ id: e.id, label: e.label, why: safe.why }));
-  const pm = all.dev.preferMode;   // 'codex' = Claude 한도 아끼기(Codex 먼저), 'claude' = Claude 먼저, 'auto' = 비용·난이도 규칙
-  const plan = devRouter.plan({ grade, level: diff.level, engines, prefer: all.dev.prefer, first: pm === 'codex' || pm === 'claude' ? pm : '' });
+  const pm = all.dev.preferMode;   // 'codex' = Claude 한도 아끼기(Codex 먼저), 'claude' = Claude 먼저, 'auto' = 비용·난이도·여유 규칙
   const first = pm === 'codex' || pm === 'claude' ? pm : '';
-  const planFor = (lv, kind) => devRouter.plan({ grade, level: lv, engines: allEngines.filter(e => kind === 'any' || (kind === 'junior' ? e.junior : !e.junior)), prefer: all.dev.prefer, first }).chain;
+  const plan = devRouter.plan({ grade, level, engines, prefer: all.dev.prefer, first, capacity, need });
+  const planFor = (lv, kind) => devRouter.plan({ grade, level: lv, engines: allEngines.filter(e => kind === 'any' || (kind === 'junior' ? e.junior : !e.junior)), prefer: all.dev.prefer, first, capacity, need }).chain;
   let chain = plan.chain.filter(e => !(e.junior && e.weak));   // 약한 주니어에게 어려운 일을 통째로 맡기지 않는다(팀 작업의 쉬운 조각만 맡김)
   if (engineId) { const pick = engines.find(e => e.id === engineId); const okPick = pick && chain.find(e => e.id === engineId); if (!okPick) return { ok: false, error: '고른 엔진을 지금 쓸 수 없습니다(설치·등급·한도 확인).' }; chain = [okPick, ...chain.filter(e => e.id !== engineId)]; }
   const jr = all.dev.junior || {};
-  const team = !engineId && jr.team !== false && diff.level >= 3 && planFor(2, 'junior').length > 0 && planFor(diff.level, 'senior').some(e => !e.weak);
+  const team = !engineId && jr.team !== false && level >= 3 && planFor(2, 'junior').length > 0 && planFor(level, 'senior').some(e => !e.weak);
   const view = e => ({ id: e.id, label: e.label, cost: e.cost, maxLevel: e.maxLevel, weak: !!e.weak, local: !!e.local, junior: !!e.junior });
-  const out = { ok: true, folder: fc.folder, grade, difficulty: diff, chain: chain.map(view), skipped: [...plan.skipped, ...juniorOut], empty: snap.files.size === 0, fileCount: snap.files.size, team: team ? { seniors: planFor(diff.level, 'senior').filter(e => !e.weak).map(e => e.label), juniors: planFor(2, 'junior').map(e => e.label) } : null, _team: team, _planFor: planFor, _jrMax: Math.min(3, Number(jr.maxLevel) || 2), _chain: chain, _bins: bins, _atts: atts };
+  const outs = plan.skipped.filter(x => x.out);
+  const capView = {}; for (const f of FAMILIES) if (capacity[f]) capView[f] = { state: capacity[f].state, note: capacity[f].note, until: capacity[f].until || 0 };
+  // 한도로 지금 맡길 곳이 없고, 풀리는 시각을 아는 경우 → 그 시각에 자동 착수(예약)
+  const waitAt = !chain.length && outs.length ? Math.min(...outs.map(x => x.until || Infinity)) : 0;
+  const waiting = waitAt && isFinite(waitAt) && waitAt - Date.now() <= MAX_WAIT_MS ? { resumeAt: waitAt } : null;
+  const out = { ok: true, folder: fc.folder, grade, difficulty: { ...diff, level, baseLevel: diff.level }, volume: { value: vol.volume, label: vol.label, reasons: vol.reasons }, need, capacity: capView, waiting, chain: chain.map(view), skipped: [...plan.skipped, ...juniorOut], empty: snap.files.size === 0, fileCount: snap.files.size, team: team ? { seniors: planFor(level, 'senior').filter(e => !e.weak).map(e => e.label), juniors: planFor(2, 'junior').map(e => e.label) } : null, _team: team, _planFor: planFor, _jrMax: Math.min(3, Number(jr.maxLevel) || 2), _chain: chain, _bins: bins, _atts: atts };
   if (!chain.length) out.error = '지금 이 작업을 맡길 수 있는 개발 AI가 없습니다. ' + (plan.skipped.length ? plan.skipped.map(x => x.label + ': ' + x.why).join(' / ') : '설정 → 개발 모드에서 엔진을 켜고, Claude Code 설치·로그인을 확인하세요.');
   return out;
 }
@@ -667,12 +683,84 @@ ipcMain.handle('dev:check', async () => {
   const juniors = buildJuniorEngines(all, localModels).map(e => ({ label: e.label, local: !!e.local, maxLevel: e.maxLevel, maxGrade: e.maxGrade }));
   return { localModels: localModels.map(m => `${m.label} ${m.model}`), juniors, claude: { path: bins.claude || null, version: await ver(bins.claude) }, codex: { enabled: !!all.dev.codex.enabled, path: bins.codex || null, version: await ver(bins.codex) }, custom: (all.dev.custom || []).map(c => ({ id: c.id, found: !!avail['cli-' + c.id] })) };
 });
+// ── 개발 작업 보관소: 한도로 멈춘 작업을 풀리는 시각에 자동 재개, 앱을 껐다 켜도 이어가기 ──
+// 저장 내용은 지시문·폴더·진행 상태뿐(비밀·키 없음). 사진 첨부는 폴더의 jeeves-attach 에 남아 있어 그대로 이어진다.
+const devJobs = new Map();      // jid → job
+const devTimers = new Map();    // jid → timer
+const devLive = new Set();      // 이번 실행에서 화면과 연결된 작업
+let devJobsFile = null;
+const saveJobs = () => { if (!devJobsFile) return; try { fs.writeFileSync(devJobsFile, JSON.stringify([...devJobs.values()]), 'utf8'); } catch (e) { logErr('개발 작업 보관소 쓰기', e); } };
+const loadJobs = () => { try { for (const j of JSON.parse(fs.readFileSync(devJobsFile, 'utf8'))) if (j && j.jid && j.fullGoal && j.folder) devJobs.set(j.jid, j); } catch (_) {} };
+const fmtAt = t => new Date(t).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+const RESUME_NOTE = '\n\n[이어서 진행] 앞선 작업이 사용 한도로 멈췄다가 다시 시작합니다. .jeeves/HANDOFF.md 와 (있다면) .jeeves/PLAN.md·tasks.json 을 먼저 읽고 끝난 일은 다시 하지 말고 남은 일부터 이어서 하세요.';
+
+// 한도로 끝난 작업이면 다시 시작할 시각을 돌려준다(0 = 기다리지 않음)
+function waitTime(job, ev) {
+  const cfg = config.get().dev;
+  if (cfg.autoResume === false || ev.success || ev.lastKind !== 'limit' || (job.resumes || 0) >= 6) return 0;
+  let at = 0;
+  if (devCap) for (const f of FAMILIES) { const u = devCap.limitUntil(f); if (u && (!at || u < at)) at = u; }
+  if (!at && ev.resumeAt) at = ev.resumeAt;
+  if (!at) at = Date.now() + 30 * 60000;
+  if (at - Date.now() > MAX_WAIT_MS) return 0;
+  return Math.max(at, Date.now() + 60000);
+}
+function endJob(job, id, ev) {
+  devRuns.delete(id); devJobs.delete(job.jid); saveJobs();
+  const t = devTimers.get(job.jid); if (t) { clearTimeout(t); devTimers.delete(job.jid); }
+  if (job.attDir) { try { fs.rmSync(job.attDir, { recursive: true, force: true }); } catch (_) {} }
+  send('agent:event', ev);
+  saveTaskHistory({ id, title: job.title, goal: job.goal, atts: job.attNames, infoGrade: job.grade, at: new Date().toISOString(), success: !!ev.success, summary: ev.summary || '', engine: 'dev', devEngine: ev.engineLabel, folder: job.folder, level: ev.level, chain: ev.chain, team: !!ev.team, teamTasks: ev.teamTasks, estUsd: ev.estUsd, changes: ev.changes ? { added: ev.changes.added.slice(0, 30), modified: ev.changes.modified.slice(0, 30), removed: ev.changes.removed.slice(0, 30), truncated: ev.changes.truncated } : null, denied: ev.denied, resumes: job.resumes || 0 });
+}
+const cancelEv = (job, id) => ({ taskId: id, type: 'done', success: false, summary: '예약된 재개를 취소했습니다.', dev: true, engine: 'dev', level: job.level, chain: [], changes: null, denied: [], estUsd: 0, subscription: true });
+function enterWait(job, id, at) {
+  job.state = 'waiting'; job.resumeAt = at; saveJobs();
+  send('agent:event', { taskId: id, type: 'limit', resumeAt: at, known: true });
+  const old = devTimers.get(job.jid); if (old) clearTimeout(old);
+  devTimers.set(job.jid, setTimeout(() => { devTimers.delete(job.jid); resumeJob(job, id).catch(e => { logErr('개발 작업 재개', e); endJob(job, id, { ...cancelEv(job, id), summary: '재개하지 못했습니다: ' + e.message }); }); }, Math.max(1000, at - Date.now())));
+  const stop = () => endJob(job, id, cancelEv(job, id));
+  devRuns.set(id, { stop, folder: job.folder });
+  tasks.set(id, { stop, respond: () => {} });
+}
+async function resumeJob(job, id) {
+  if (!devJobs.has(job.jid)) return;
+  job.resumes = (job.resumes || 0) + 1; job.state = 'running'; saveJobs();
+  const p = await devPlan({ goal: job.goal, infoGrade: job.grade, folder: job.folder, attachments: [], hint: { volume: job.volume } });   // 그 사이 달라진 여유로 엔진을 다시 고른다
+  if (!p.ok) return endJob(job, id, { ...cancelEv(job, id), summary: p.error });
+  if (!p._chain.length) {
+    if (p.waiting && job.resumes < 6) return enterWait(job, id, Math.max(p.waiting.resumeAt, Date.now()) + 60000);
+    return endJob(job, id, { ...cancelEv(job, id), summary: p.error });
+  }
+  send('agent:event', { taskId: id, type: 'resume', text: `한도가 풀려 이어서 진행합니다 — ${p._chain.map(c => c.label).join(' → ')}` });
+  runDevJob(job, p, id);
+}
+function runDevJob(job, p, id) {
+  const workDir = path.join(app.getPath('userData'), 'dev-work');
+  const resumed = (job.resumes || 0) > 0;
+  const runner = p._team && !resumed
+    ? o => runTeam({ ...o, planFor: p._planFor, juniorMaxLevel: p._jrMax, confirm: (config.get().dev.junior || {}).confirm !== false })
+    : o => runChain({ ...o, chain: p._chain });
+  job.state = 'running'; job.level = p.difficulty.level; job.volume = p.volume.value; saveJobs();
+  const ctl = runner({ id, goal: job.fullGoal + (resumed ? RESUME_NOTE : ''), folder: job.folder, devRouter, bins: p._bins, workDir, level: p.difficulty.level, router, grade: job.grade, krwPerUsd: config.get().ui.krwPerUsd || 1400,
+    onAttempt: (engine, r) => { if (devCap && engine && engine.family) devCap.record({ family: engine.family, engineId: engine.id, kind: r.success ? 'ok' : (['limit', 'login', 'missing'].includes(r.kind) ? r.kind : 'fail'), resumeAt: r.resumeAt, level: p.difficulty.level, volume: p.volume.value }); },
+    emit: ev => {
+      if (ev.type !== 'done') return send('agent:event', ev);
+      const at = waitTime(job, ev);
+      if (at) return enterWait(job, id, at);
+      endJob(job, id, ev);
+    } });
+  devRuns.set(id, { stop: () => ctl.stop(), folder: job.folder });
+  tasks.set(id, { stop: () => ctl.stop(), respond: payload => { if (ctl.respond) ctl.respond(payload); } });
+}
+const jobCardInfo = (job, p) => ({ level: job.level, label: p ? p.difficulty.label : '', reasons: p ? p.difficulty.reasons : [], folder: job.folder, chain: p ? p.chain.map(c => c.label) : [] });
+
 ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, engineId, projectId }) => {
   goal = String(goal || '').trim();
   if (!goal) return { error: '개발할 내용을 입력해 주세요.' };
   const p = await devPlan({ goal, infoGrade, folder, attachments, engineId });
   if (!p.ok) return { error: p.error };
-  if (!p._chain.length) return { error: p.error };
+  const autoRes = config.get().dev.autoResume !== false;
+  if (!p._chain.length && !(p.waiting && autoRes)) return { error: p.error };
   for (const r of devRuns.values()) if (r.folder.toLowerCase() === p.folder.toLowerCase()) return { error: '이 폴더에서는 이미 개발 작업이 진행 중입니다. 끝나거나 중지한 뒤 다시 지시해 주세요.' };
   const atts = p._atts, grade = p.grade;
   const txt = atts.filter(a => a.kind === 'text'), imgs = atts.filter(a => a.kind === 'image');
@@ -688,25 +776,56 @@ ipcMain.handle('dev:start', async (_, { goal, infoGrade, folder, attachments, en
   fullGoal += `\n\n[프로젝트 폴더: ${p.folder}${p.empty ? ' (비어 있음 — 새로 만드는 일)' : ''}]`;
   const id = ++taskSeq;
   const title = goal.replace(/\s+/g, ' ').trim().slice(0, 24) + (goal.length > 24 ? '…' : '');
-  send('agent:event', { taskId: id, type: 'created', goal, title, dev: true, devInfo: { level: p.difficulty.level, label: p.difficulty.label, reasons: p.difficulty.reasons, folder: p.folder, chain: p.chain.map(c => c.label) } });
+  const job = { jid: require('crypto').randomBytes(6).toString('hex'), goal, fullGoal, folder: p.folder, grade, projectId: projectId || null, title, level: p.difficulty.level, volume: p.volume.value, attNames, attDir, state: 'running', resumes: 0, at: Date.now() };
+  devJobs.set(job.jid, job); devLive.add(job.jid); saveJobs();
+  send('agent:event', { taskId: id, type: 'created', goal, title, dev: true, devInfo: { level: p.difficulty.level, label: p.difficulty.label, reasons: p.difficulty.reasons, folder: p.folder, chain: p.chain.map(c => c.label), volume: p.volume.label } });
   liveWorks.set(id, { id, dev: true, title, goal, at: new Date().toISOString(), projectId: projectId || null });
   send('sidebar:changed');
-  const workDir = path.join(app.getPath('userData'), 'dev-work');
-  const runner = p._team
-    ? o => runTeam({ ...o, planFor: p._planFor, juniorMaxLevel: p._jrMax, confirm: (config.get().dev.junior || {}).confirm !== false })
-    : o => runChain({ ...o, chain: p._chain });
-  const ctl = runner({ id, goal: fullGoal, folder: p.folder, devRouter, bins: p._bins, workDir, level: p.difficulty.level, router, grade, krwPerUsd: config.get().ui.krwPerUsd || 1400,
-    emit: ev => {
-      send('agent:event', ev);
-      if (ev.type === 'done') {
-        devRuns.delete(id);
-        if (attDir) { try { fs.rmSync(attDir, { recursive: true, force: true }); } catch (_) {} }
-        saveTaskHistory({ id, title, goal, atts: attNames, infoGrade: grade, at: new Date().toISOString(), success: !!ev.success, summary: ev.summary || '', engine: 'dev', devEngine: ev.engineLabel, folder: p.folder, level: ev.level, chain: ev.chain, team: !!ev.team, teamTasks: ev.teamTasks, estUsd: ev.estUsd, changes: ev.changes ? { added: ev.changes.added.slice(0, 30), modified: ev.changes.modified.slice(0, 30), removed: ev.changes.removed.slice(0, 30), truncated: ev.changes.truncated } : null, denied: ev.denied });
-      }
-    } });
-  devRuns.set(id, { stop: () => ctl.stop(), folder: p.folder });
-  tasks.set(id, { stop: () => ctl.stop(), respond: payload => { if (ctl.respond) ctl.respond(payload); } });
+  if (!p._chain.length) { enterWait(job, id, p.waiting.resumeAt + 60000); return { id, engine: 'dev', waiting: true }; }   // 지금은 한도 → 풀리는 시각에 자동 착수
+  runDevJob(job, p, id);
   return { id, engine: 'dev' };
+});
+
+// 앱을 다시 켠 뒤: 보관소에 남은 작업을 화면에 되살린다(대기 중이던 것·중간에 꺼진 것)
+let devRestored = false;
+ipcMain.handle('dev:pending', async () => {
+  if (devRestored) return { restored: 0 }; devRestored = true;
+  const auto = config.get().dev.resumeOnStart !== 'ask';
+  let n = 0;
+  for (const job of [...devJobs.values()]) {
+    if (devLive.has(job.jid)) continue; devLive.add(job.jid);
+    if ([...devRuns.values()].some(r => r.folder.toLowerCase() === job.folder.toLowerCase())) continue;
+    const id = ++taskSeq; n++;
+    send('agent:event', { taskId: id, type: 'created', goal: job.goal, title: job.title, dev: true, devInfo: { level: job.level, label: '', reasons: ['앱을 다시 켜서 이어가는 작업'], folder: job.folder, chain: [] } });
+    liveWorks.set(id, { id, dev: true, title: job.title, goal: job.goal, at: new Date(job.at).toISOString(), projectId: job.projectId || null });
+    const go = () => resumeJob(job, id).catch(e => { logErr('개발 작업 재개', e); endJob(job, id, { ...cancelEv(job, id), summary: '재개하지 못했습니다: ' + e.message }); });
+    const discard = () => endJob(job, id, cancelEv(job, id));
+    const stop = discard;
+    devRuns.set(id, { stop, folder: job.folder }); tasks.set(id, { stop, respond: () => {} });
+    if (job.state === 'waiting' && job.resumeAt > Date.now() + 5000) {   // 예약 시각이 아직 남음 → 그 시각에 자동
+      enterWait(job, id, job.resumeAt);
+    } else if (auto) {
+      send('agent:event', { taskId: id, type: 'info', text: job.state === 'waiting' ? '예약 시각이 지나 바로 이어서 진행합니다.' : '앱이 꺼져 중단된 작업을 이어서 진행합니다(.jeeves 인수인계 파일 기준).' });
+      setTimeout(go, 1500);
+    } else {
+      devPendingAsk.set(id, { go, discard });
+      send('agent:event', { taskId: id, type: 'pending', text: job.state === 'waiting' ? '예약 시각이 지났습니다.' : '앱이 꺼져 중단된 작업입니다.' });
+    }
+  }
+  send('sidebar:changed');
+  return { restored: n };
+});
+const devPendingAsk = new Map();
+ipcMain.handle('dev:pending-act', (_, { taskId, act }) => {
+  const p = devPendingAsk.get(taskId); if (!p) return { ok: false };
+  devPendingAsk.delete(taskId);
+  if (act === 'resume') p.go(); else p.discard();
+  return { ok: true };
+});
+ipcMain.handle('dev:capacity', async () => {   // 설정 화면용: 계열별 여유 상태
+  const capCfg = config.get().dev.capacity || {}, o = {};
+  if (devCap) for (const f of FAMILIES) { const st = devCap.state(f, capCfg[f]); o[f] = { state: st.state, note: st.note, until: st.until, runs24: devCap.recentRuns(f), limits24: devCap.recentLimits(f) }; }
+  return o;
 });
 
 app.whenReady().then(async () => {
@@ -715,6 +834,8 @@ app.whenReady().then(async () => {
   convs = new ConversationStore(path.join(userData, 'jeeves-conversations.json'));
   convs.onError = e => logErr('대화 파일 쓰기', e);
   config = new ConfigStore(userData, safeStorage);
+  devCap = new DevCapacity(path.join(userData, 'jeeves-dev-usage.json'));
+  devJobsFile = path.join(userData, 'jeeves-dev-pending.json'); loadJobs();
   router = new ModelRouter(() => config.get(), (url, opts) => net.fetch(url, opts));
   // 웹 로그인형 공급자: 로그인이 유지되는 지브스 브라우저 탭 하나를 전용으로 쓰고, 질문마다 새 대화 화면으로 시작한다
   let wcTabId = null;

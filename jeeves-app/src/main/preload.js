@@ -65,7 +65,10 @@ contextBridge.exposeInMainWorld('jeeves', {
     start: a => ipcRenderer.invoke('dev:start', a),
     pickFolder: () => ipcRenderer.invoke('dev:pick-folder'),
     openFolder: () => ipcRenderer.invoke('dev:open-folder'),
-    check: () => ipcRenderer.invoke('dev:check')
+    check: () => ipcRenderer.invoke('dev:check'),
+    pending: () => ipcRenderer.invoke('dev:pending'),
+    pendingAct: (taskId, act) => ipcRenderer.invoke('dev:pending-act', { taskId, act }),
+    capacity: () => ipcRenderer.invoke('dev:capacity')
   },
   usage: () => ipcRenderer.invoke('usage:get'),
   grade: { suspect: text => ipcRenderer.invoke('grade:suspect', String(text || '')) },

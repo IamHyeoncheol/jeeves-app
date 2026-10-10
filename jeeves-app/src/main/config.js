@@ -69,6 +69,8 @@ const DEFAULTS = {
     junior: { enabled: true, local: true, free: true, paid: false, maxLevel: 2, team: true, confirm: true },   // 주니어 엔진: 지브스가 직접 굴리는 코딩 에이전트(로컬 AI·무료 API 자동 탐지)
     claude: { enabled: true, models: { haiku: [1, 2], sonnet: [1, 3], opus: [1, 4] } },
     codex: { enabled: 'auto', path: '', args: 'exec --sandbox workspace-write --skip-git-repo-check -', maxLevel: 3, maxGrade: 'I' },
+    capacity: { claude: { usedPct: null, at: 0 }, codex: { usedPct: null, at: 0 } },   // 사용자가 입력한 사용량 %(48시간만 유효). 프로그램이 구독 잔여량을 읽을 방법은 확인되지 않음
+    autoResume: true, resumeOnStart: 'auto',   // 한도로 멈추면 풀리는 시각에 자동 재개 / 앱을 다시 켰을 때: 'auto' 자동 이어가기, 'ask' 물어보기
     custom: []   // 기타 개발 AI: { id, label, bin, args('{prompt}' 또는 표준입력, '{cwd}'), enabled, maxLevel(1~4), maxGrade(P|I|C|S는 local만), cost(free|subscription|api), local }
   }   // allowExternal: 외부 에이전트(Codex 등)가 지브스를 직접 부리는 길(기본 꺼짐: 지브스가 최상위여야 함)
 };
@@ -81,6 +83,17 @@ function sanitizeDev(d) {
   if (Array.isArray(d.prefer)) out.prefer = d.prefer.filter(x => ['claude', 'codex', 'cli'].includes(x));
   if (['P', 'I', 'C'].includes(d.claudeMaxGrade)) out.claudeMaxGrade = d.claudeMaxGrade;
   if (['auto', 'codex', 'claude'].includes(d.preferMode)) out.preferMode = d.preferMode;
+  if (d.capacity && typeof d.capacity === 'object') {
+    const cp = {};
+    for (const f of ['claude', 'codex']) {
+      const c = d.capacity[f]; if (!c) continue;
+      if (c.usedPct === null || c.usedPct === '') cp[f] = { usedPct: null, at: 0 };
+      else { const n = Number(c.usedPct); if (Number.isFinite(n)) cp[f] = { usedPct: Math.max(0, Math.min(100, Math.round(n))), at: Number(c.at) > 0 ? Number(c.at) : Date.now() }; }
+    }
+    out.capacity = cp;
+  }
+  if (typeof d.autoResume === 'boolean') out.autoResume = d.autoResume;
+  if (['auto', 'ask'].includes(d.resumeOnStart)) out.resumeOnStart = d.resumeOnStart;
   if (d.junior) {
     const j = {};
     for (const k of ['enabled', 'local', 'free', 'paid', 'team', 'confirm']) if (typeof d.junior[k] === 'boolean') j[k] = d.junior[k];

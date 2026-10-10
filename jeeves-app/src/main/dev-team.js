@@ -65,7 +65,7 @@ function hasTestScript(folder) {
 // opts: { id, goal, folder, level, planFor(level, 'junior'|'senior'|'any') → 엔진 목록, devRouter, bins, workDir, router, grade, krwPerUsd, emit, juniorMaxLevel, verify=true, ApiClass, TaskClass }
 function runTeam(o) {
   const { id, goal, folder, level, emit, planFor } = o;
-  const base = { id, folder, devRouter: o.devRouter, bins: o.bins, workDir: o.workDir, router: o.router, grade: o.grade, krwPerUsd: o.krwPerUsd, ApiClass: o.ApiClass, TaskClass: o.TaskClass, timeoutMs: o.timeoutMs };
+  const base = { id, folder, devRouter: o.devRouter, bins: o.bins, workDir: o.workDir, router: o.router, grade: o.grade, krwPerUsd: o.krwPerUsd, ApiClass: o.ApiClass, TaskClass: o.TaskClass, timeoutMs: o.timeoutMs, onAttempt: o.onAttempt };
   let waitAssign = null;
   const respond = p => { if (waitAssign) { const f = waitAssign; waitAssign = null; f(p); } };
   let stopped = false, cur = null, usd = 0, subscription = true, started = false;

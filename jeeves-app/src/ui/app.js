@@ -517,11 +517,11 @@ window.addEventListener('drop', e => e.preventDefault());
 async function runDev(text, atts, opts) {
   if (!(cfg.dev && cfg.dev.folder)) { const f = await pickDevFolder(); if (!f) { $('#input').value = text; return; } }
   const p = await api.dev.plan({ goal: text, infoGrade: chatGrade, folder: cfg.dev.folder, attachments: atts });
-  if (!p.ok || !p.chain || !p.chain.length) { addErr(p.error || '개발 계획을 만들지 못했습니다.'); $('#input').value = text; return; }
+  if (!p.ok || !p.chain || (!p.chain.length && !p.waiting)) { addErr(p.error || '개발 계획을 만들지 못했습니다.'); $('#input').value = text; return; }
   const ch = await askDevPlan(p);
   if (ch.toBrowser) return runBrowser(text, atts, opts);   // 규칙이 잘못 가른 경우: 카드에서 브라우저 작업으로 바꿈
   if (ch.cancel) { $('#input').value = text; return; }
-  addUser(text, `🛠 작업(Work) · 개발 · L${p.difficulty.level} ${p.difficulty.label} · 🔒${chatGrade}`, { kind: 'act', mode: 'act', route: 'dev', attachments: atts });
+  addUser(text, `🛠 작업(Work) · 개발 · L${p.difficulty.level} ${p.difficulty.label}${p.volume ? ' · 분량 ' + p.volume.label : ''} · 🔒${chatGrade}`, { kind: 'act', mode: 'act', route: 'dev', attachments: atts });
   if (opts.attachments === undefined && atts.length) { attachments = []; renderTray(); }
   const r = await api.dev.start({ goal: text, infoGrade: chatGrade, folder: p.folder, attachments: atts, engineId: ch.engineId || undefined, projectId: pendingProject || activeProject });
   if (r.error) { addErr(r.error); return; }
@@ -696,6 +696,12 @@ $('#dev-folder').onclick = async () => {
 };
 $('#dev-folder-change').onclick = () => pickDevFolder();
 const COST_TXT = { free: '무료', subscription: '구독', api: 'API(과금)' };
+const CAP_TXT = { out: '🔴 한도', low: '🟠 부족', tight: '🟡 빠듯', ok: '🟢 여유', unknown: '⚪ 정보 없음' };
+function capLines(p) {
+  const c = p.capacity || {}, names = { claude: 'Claude Code', codex: 'Codex' };
+  const rows = Object.keys(c).filter(f => c[f] && c[f].state !== 'unknown' || (c[f] && c[f].note && !/^정보 없음/.test(c[f].note))).map(f => `${names[f] || f} ${CAP_TXT[c[f].state] || ''} <small class="muted">${esc(c[f].note || '')}</small>`);
+  return rows.length ? `<div>여유 ${rows.join(' · ')}</div>` : '';
+}
 function askDevPlan(p) {
   return new Promise(resolve => {
     const card = document.createElement('div');
@@ -703,14 +709,17 @@ function askDevPlan(p) {
     const chain = p.chain.map((c, i) => `${i + 1}. ${esc(c.label)} <small class="muted">(${COST_TXT[c.cost] || c.cost}${c.weak ? ' · ⚠ 이 난이도에는 약함' : ''})</small>`).join('<br>');
     card.innerHTML = `<div class="q">🛠 개발 계획 확인</div>
       <div>난이도 <b>L${p.difficulty.level} ${esc(p.difficulty.label)}</b> <small class="muted">— ${esc(p.difficulty.reasons.join(', '))}</small></div>
+      ${p.volume ? `<div>분량 <b>${esc(p.volume.label)}</b> <small class="muted">— ${esc(p.volume.reasons.join(', '))}</small></div>` : ''}
+      ${capLines(p)}
       <div>📁 ${esc(p.folder)} <small class="muted">${p.empty ? '(비어 있음 — 새로 만들기)' : `(파일 ${p.fileCount}${p.fileCount >= 3000 ? '+' : ''}개 — 기존 프로젝트 수정)`}</small></div>
       <div>🔒 정보 등급 ${p.grade}</div>
       ${p.team ? `<div class="why">👥 <b>팀 작업</b>: 시니어(${esc(p.team.seniors.join(', '))})가 계획·검수, 쉬운 조각은 주니어(${esc(p.team.juniors.join(', '))})가 구현합니다. 주니어가 못 하면 시니어가 이어받고, 끝나면 자동 검증(npm test)이 있습니다.</div>` : ''}
-      <div style="margin-top:4px"><b>맡길 순서</b> <small class="muted">(한도·로그인 문제가 생기면 다음 엔진으로 자동 전환)</small><br>${chain}</div>
+      ${p.waiting && !p.chain.length ? `<div class="why">⏳ 지금은 모든 개발 AI가 사용 한도입니다. <b>${esc(new Date(p.waiting.resumeAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }))}</b>에 한도가 풀리면 자동으로 착수합니다(앱이 꺼져도 다시 켜면 이어집니다).</div>`
+        : `<div style="margin-top:4px"><b>맡길 순서</b> <small class="muted">(난이도·분량·남은 여유로 자동 선정 · 한도·로그인 문제가 생기면 다음 엔진으로 전환, 한도로 멈추면 풀릴 때 자동 재개)</small><br>${chain}</div>`}
       ${p.skipped.length ? `<details><summary class="muted">제외된 엔진 ${p.skipped.length}개</summary><small class="muted">${p.skipped.map(x => esc(x.label) + ': ' + esc(x.why)).join('<br>')}</small></details>` : ''}
       <div class="why">이 폴더 안에서만 파일을 만들고 고칩니다. 삭제·인터넷 전송·시스템 변경 명령은 막혀 있고 .env 같은 비밀 파일은 읽지 못합니다. 단, 개발 AI가 프로그램을 실행할 수 있으므로 <b>중요한 폴더는 미리 백업</b>하세요.</div>
       <div class="acts"><select class="dp-eng"><option value="">자동 (위 순서)</option>${p.chain.map(c => `<option value="${esc(c.id)}">${esc(c.label)} 먼저</option>`).join('')}</select>
-        <button class="primary" data-a="go">이대로 시작</button><button class="ghost" data-a="web" title="이 지시는 개발이 아니라 사이트 조작입니다">브라우저 작업으로</button><button class="ghost" data-a="no">취소</button></div>`;
+        <button class="primary" data-a="go">${p.chain.length ? '이대로 시작' : '예약 시작'}</button><button class="ghost" data-a="web" title="이 지시는 개발이 아니라 사이트 조작입니다">브라우저 작업으로</button><button class="ghost" data-a="no">취소</button></div>`;
     box.appendChild(card); scrollDown();
     card.querySelector('[data-a=go]').onclick = () => { const v = card.querySelector('.dp-eng').value; card.remove(); resolve({ engineId: v }); };
     card.querySelector('[data-a=web]').onclick = () => { card.remove(); resolve({ toBrowser: true }); };
@@ -782,6 +791,13 @@ function onAgentEvent(ev) {
       break;
     }
     case 'resume': c.el.querySelector('.badge').className = 'badge run'; c.el.querySelector('.badge').textContent = '진행 중'; addStep(c, 'esc', '▶', ev.text); break;
+    case 'pending': {
+      c.el.querySelector('.badge').className = 'badge fail'; c.el.querySelector('.badge').textContent = '확인 필요';
+      c.slot.innerHTML = `<div class="prompt ask"><div class="q">${esc(ev.text)} 이어서 진행할까요?</div><div class="why">이어서 하면 개발 AI를 다시 고르고, 폴더의 인수인계 파일(.jeeves)을 읽혀 남은 일부터 진행합니다.</div><div class="acts"><button class="primary" data-p="resume">이어서 진행</button><button class="ghost" data-p="discard">버리기</button></div></div>`;
+      c.slot.querySelectorAll('[data-p]').forEach(b => { b.onclick = () => { c.slot.innerHTML = ''; api.dev.pendingAct(ev.taskId, b.dataset.p); }; });
+      notify('Jeeves: 중단된 개발 작업', ev.text);
+      break;
+    }
     case 'title': c.el.querySelector('.ttl').textContent = ev.title; break;
     case 'start': if (ev.dev) { addStep(c, '', ICON.start, `${ev.attempt}번째 엔진: ${ev.engineLabel}`); break; } addStep(c, '', ICON.start, `시작 (${ev.engine === 'claude-code' ? '🔗 구독: Claude Code' : ev.mode === 'hybrid' ? '⚡ Jev + Claude 혼합' : 'Claude만'}): ` + ev.goal); break;
     case 'cost': c.el.querySelector('.cost').textContent = ev.subscription ? '구독' : `${ev.unknown ? '≥' : ''}${ev.krw.toLocaleString()}원`; break;
@@ -1137,6 +1153,10 @@ function loadDevSettings() {
   $('#dev-codex-level').value = String(cx.maxLevel || 3); $('#dev-codex-grade').value = cx.maxGrade || 'I';
   $('#dev-prefer').value = (d.prefer || [])[0] === 'codex' ? 'codex' : 'claude';
   $('#dev-prefermode').value = d.preferMode || 'auto';
+  const cp = d.capacity || {};
+  for (const f of ['claude', 'codex']) { const u = cp[f] && cp[f].usedPct; $('#dev-cap-' + f).value = u === null || u === undefined ? '' : String(u); }
+  $('#dev-autoresume').checked = d.autoResume !== false; $('#dev-resumestart').value = d.resumeOnStart === 'ask' ? 'ask' : 'auto';
+  api.dev.capacity().then(c => { $('#dev-cap-status').textContent = Object.keys(c).map(f => `${f === 'claude' ? 'Claude' : 'Codex'} ${CAP_TXT[c[f].state] || ''} — ${c[f].note}(최근 24시간 실행 ${c[f].runs24}회·한도 ${c[f].limits24}회)`).join(' / ') || '-'; }).catch(() => {});
   const jr = d.junior || {}; $('#dev-junior').checked = jr.enabled !== false; $('#dev-team').checked = jr.team !== false; $('#dev-confirm').checked = jr.confirm !== false;
   devCustom = JSON.parse(JSON.stringify(d.custom || []));
   renderDevCustom();
@@ -1157,10 +1177,20 @@ function collectDevCustom() {
     return { id, label, bin: g('bin').value.trim(), args: g('args').value.trim(), maxLevel: Number(g('maxLevel').value), maxGrade: g('maxGrade').value, cost: g('cost').value, local: g('local').checked, enabled: g('enabled').checked };
   }).filter(c => c.bin);
 }
+function collectCap() {
+  const old = ((cfg.dev || {}).capacity) || {}, out = {};
+  for (const f of ['claude', 'codex']) {
+    const v = $('#dev-cap-' + f).value.trim(), o = old[f] || {};
+    if (v === '') out[f] = { usedPct: null, at: 0 };
+    else out[f] = { usedPct: Number(v), at: String(o.usedPct) === v && o.at ? o.at : Date.now() };   // 값이 바뀐 때만 입력 시각을 새로 기록
+  }
+  return out;
+}
 function collectDevSettings() {
   const first = $('#dev-prefer').value === 'codex' ? ['codex', 'claude'] : ['claude', 'codex'];
   return { prefer: first, claudeMaxGrade: $('#dev-claude-grade').value, claude: { enabled: $('#dev-claude').checked },
-    preferMode: $('#dev-prefermode').value, junior: { enabled: $('#dev-junior').checked, team: $('#dev-team').checked, confirm: $('#dev-confirm').checked },
+    preferMode: $('#dev-prefermode').value, autoResume: $('#dev-autoresume').checked, resumeOnStart: $('#dev-resumestart').value, capacity: collectCap(),
+    junior: { enabled: $('#dev-junior').checked, team: $('#dev-team').checked, confirm: $('#dev-confirm').checked },
     codex: { enabled: $('#dev-codex').checked ? (((cfg.dev || {}).codex || {}).enabled === 'auto' ? 'auto' : true) : false, path: $('#dev-codex-path').value.trim(), args: $('#dev-codex-args').value.trim(), maxLevel: Number($('#dev-codex-level').value), maxGrade: $('#dev-codex-grade').value },
     custom: collectDevCustom() };
 }
@@ -1439,3 +1469,4 @@ $('#sb-search').addEventListener('input', renderSidebar);
 $('#sb-toggle').onclick = () => { sbState.hidden = !sbState.hidden; sbSave(); renderSidebar(); requestAnimationFrame(pushBounds); };
 api.sidebar.onChanged(refreshSidebar);
 refreshSidebar();
+api.dev.pending().catch(() => {});   // 앱을 껐다 켠 뒤: 예약·중단된 개발 작업을 되살림
